@@ -1,0 +1,15 @@
+VISION PLAY TV — V10 (1.6.0)
+
+Correções e melhorias:
+- Corrigida a navegação de séries: os episódios são mantidos em uma lista separada do catálogo principal para não aparecerem como zero ao abrir a seção.
+- Após tocar em “Ver temporadas e episódios”, mostra temporadas em cartões retangulares com capa e quantidade de episódios.
+- Ao selecionar uma temporada, mostra somente seus episódios em cartões retangulares, com miniatura da série e botão Assistir.
+- Ordena temporadas numericamente e tenta ordenar episódios pelo número do episódio.
+- Ajusta o player para tocar episódios a partir da lista de episódios da série.
+- Usa logotipos textuais reconhecíveis nas pastas de plataformas/canais e miniaturas nos itens de catálogo.
+- Ajusta a altura dos cartões para que as miniaturas não sejam cortadas.
+- Orientação sensorLandscape: mantém o app horizontal, mas permite girar entre as duas posições horizontais conforme o sensor do celular.
+
+Observações:
+- Os logos e pôsteres reais dependem das imagens e dos nomes fornecidos pela API Xtream.
+- O projeto precisa ser compilado pelo GitHub Actions e testado no aparelho antes de considerar o APK validado.

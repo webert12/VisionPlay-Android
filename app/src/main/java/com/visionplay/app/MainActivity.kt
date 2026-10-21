@@ -107,6 +107,9 @@ class MainActivity : AppCompatActivity() {
     private var currentPlaying: MediaEntry? = null
     private var currentPlaybackQueue: List<MediaEntry> = emptyList()
     private var currentPlaybackIndex = -1
+    private var activeSeriesForEpisodes: MediaEntry? = null
+    private var episodeEntries: MutableList<MediaEntry> = mutableListOf()
+    private var selectedSeason: String? = null
     private val playbackHandler = Handler(Looper.getMainLooper())
     private var playbackSeekBar: SeekBar? = null
     private var playbackTimeLabel: TextView? = null
@@ -687,7 +690,7 @@ class MainActivity : AppCompatActivity() {
         activeSection = section
         if (!::contentBox.isInitialized || fullScreenMode) return
         contentBox.removeAllViews()
-        val all = entries.filter { it.section == section }
+        val all = if (section == "Episódios") episodeEntries.toList() else entries.filter { it.section == section }
         val query = searchQuery.trim()
         val filtered = if (query.isBlank()) all else all.filter {
             it.name.contains(query, true) || it.group.contains(query, true) || folderFor(it).contains(query, true)
@@ -702,6 +705,49 @@ class MainActivity : AppCompatActivity() {
             setTextColor(white); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(2), dp(9), 0, dp(9))
         }, matchWrap())
+
+        if (section == "Episódios") {
+            val series = activeSeriesForEpisodes
+            contentBox.addView(TextView(this).apply {
+                text = series?.name ?: "Episódios da série"
+                setTextColor(cyan); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(2), dp(4), 0, dp(10))
+            }, matchWrap())
+            if (selectedSeason == null) {
+                val seasons = all.groupBy { it.group }.entries.sortedBy { seasonNumber(it.key) }
+                if (seasons.isEmpty()) {
+                    contentBox.addView(TextView(this).apply {
+                        text = "O servidor não retornou episódios para esta série. Tente novamente ou confira se a API disponibiliza os episódios."
+                        setTextColor(muted); textSize = 14f; setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
+                    }, matchWrap())
+                } else {
+                    contentBox.addView(TextView(this).apply {
+                        text = "ESCOLHA UMA TEMPORADA"; setTextColor(muted); textSize = 11f; typeface = Typeface.DEFAULT_BOLD
+                        setPadding(dp(2), dp(4), 0, dp(8))
+                    }, matchWrap())
+                    seasons.forEach { season ->
+                        contentBox.addView(makeSeasonCard(season.key, season.value.size, series?.posterUrl.orEmpty()) {
+                            selectedSeason = season.key
+                            showSection("Episódios")
+                        }, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(8) })
+                    }
+                }
+            } else {
+                contentBox.addView(makeSmallButton("‹  TODAS AS TEMPORADAS") {
+                    selectedSeason = null
+                    showSection("Episódios")
+                }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
+                val seasonEpisodes = all.filter { it.group == selectedSeason }
+                    .sortedWith(compareBy<MediaEntry> { episodeNumber(it.name) }.thenBy { it.name })
+                seasonEpisodes.forEach { episode ->
+                    contentBox.addView(makeMediaRow(episode), LinearLayout.LayoutParams(-1, dp(72)).apply { bottomMargin = dp(7) })
+                }
+                if (seasonEpisodes.isEmpty()) {
+                    contentBox.addView(TextView(this).apply { text = "Nenhum episódio encontrado nesta temporada."; setTextColor(muted); setPadding(dp(12), dp(16), dp(12), dp(16)) }, matchWrap())
+                }
+            }
+            return
+        }
 
         if (filtered.isEmpty()) {
             contentBox.addView(TextView(this).apply {
@@ -724,18 +770,13 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
-        if (section == "Episódios") {
-            contentBox.addView(makeSmallButton("‹  VOLTAR PARA SÉRIES") {
-                activeSection = "Séries"; selectedFolder = null; showCatalog()
-            }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
-        }
         if (query.isBlank() && selectedFolder != null) {
             contentBox.addView(makeSmallButton("‹  TODAS AS PASTAS") { selectedFolder = null; showSection(section) },
                 LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
         }
         val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
         val page = visible.take(visibleLimit)
-        page.forEach { item -> contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(60)).apply { bottomMargin = dp(6) }) }
+        page.forEach { item -> contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(72)).apply { bottomMargin = dp(6) }) }
         if (visible.size > page.size) contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size) {
             visibleLimit += 100; showSection(section)
         }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(4); bottomMargin = dp(8) })
@@ -743,6 +784,32 @@ class MainActivity : AppCompatActivity() {
             text = "Nenhum conteúdo nesta pasta."; setTextColor(muted); textSize = 14f
             setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
         }, matchWrap())
+    }
+
+    private fun seasonNumber(value: String): Int = Regex("\\d+").find(value)?.value?.toIntOrNull() ?: Int.MAX_VALUE
+
+    private fun episodeNumber(value: String): Int {
+        val patterns = listOf(Regex("(?i)\\bS\\d+\\s*E(\\d+)\\b"), Regex("(?i)epis[oó]dio\\s*(\\d+)"), Regex("(?i)\\bE(\\d+)\\b"))
+        return patterns.firstNotNullOfOrNull { it.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull() } ?: Int.MAX_VALUE
+    }
+
+    private fun makeSeasonCard(name: String, count: Int, posterUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(10), dp(8), dp(12), dp(8))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(panel); cornerRadius = dp(12).toFloat(); setStroke(dp(1), Color.rgb(36, 62, 91))
+        }
+        val thumb = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2) }
+        addView(thumb, LinearLayout.LayoutParams(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        if (posterUrl.isNotBlank()) loadPoster(posterUrl, thumb) else thumb.setImageResource(android.R.drawable.ic_menu_gallery)
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply { text = name; setTextColor(white); textSize = 15f; typeface = Typeface.DEFAULT_BOLD }, matchWrap())
+            addView(TextView(this@MainActivity).apply { text = "$count episódios"; setTextColor(muted); textSize = 12f; setPadding(0, dp(4), 0, 0) }, matchWrap())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(TextView(this@MainActivity).apply { text = "›"; setTextColor(cyan); textSize = 28f }, matchWrap())
+        isFocusable = true
+        setOnClickListener { action() }
     }
 
     private fun folderPriority(name: String): Int {
@@ -807,12 +874,24 @@ class MainActivity : AppCompatActivity() {
         setPadding(dp(14), dp(8), dp(12), dp(8)); setBackgroundColor(panel)
         val symbol = TextView(this@MainActivity).apply {
             text = when {
-                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> "▣"
-                name.contains("Netflix", true) || name.contains("HBO", true) || name.contains("Prime", true) || name.contains("GloboPlay", true) -> "▶"
-                else -> "▰"
+                name.contains("Netflix", true) -> "N"
+                name.contains("HBO", true) || name.contains("Max", true) -> "HBO"
+                name.contains("Prime", true) || name.contains("Amazon", true) -> "prime"
+                name.contains("GloboPlay", true) || name.contains("Globoplay", true) -> "G"
+                name.contains("Disney", true) -> "D+"
+                name.contains("Paramount", true) -> "P+"
+                name.contains("Apple TV", true) -> "tv+"
+                name.contains("Crunchyroll", true) -> "CR"
+                name.contains("Globo", true) -> "G"
+                name.contains("SBT", true) -> "SBT"
+                name.contains("Record", true) -> "R"
+                name.contains("Band", true) -> "BAND"
+                name.contains("Carregar mais", true) -> "+"
+                else -> "▶"
             }
-            textSize = 22f; setTextColor(cyan); gravity = Gravity.CENTER
-            setBackgroundColor(panel2)
+            textSize = if (text.length > 2) 12f else 22f; setTextColor(cyan); gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(panel2); cornerRadius = dp(8).toFloat() }
         }
         addView(symbol, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
         addView(LinearLayout(this@MainActivity).apply {
@@ -833,25 +912,26 @@ class MainActivity : AppCompatActivity() {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), dp(6), dp(8), dp(6))
         setBackgroundColor(panel)
-        addView(TextView(this@MainActivity).apply {
-            text = when (item.section) { "Canais ao vivo" -> "●"; "Filmes" -> "▶"; else -> "▤" }
-            setTextColor(cyan); textSize = 16f; gravity = Gravity.CENTER
-            setBackgroundColor(panel2)
-        }, LinearLayout.LayoutParams(dp(38), dp(42)).apply { marginEnd = dp(10) })
+        val thumbnail = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2) }
+        addView(thumbnail, LinearLayout.LayoutParams(dp(44), dp(54)).apply { marginEnd = dp(10) })
+        if (item.posterUrl.isNotBlank()) loadPoster(item.posterUrl, thumbnail) else {
+            thumbnail.setImageResource(when (item.section) { "Canais ao vivo" -> android.R.drawable.ic_media_play; "Filmes" -> android.R.drawable.ic_menu_gallery; else -> android.R.drawable.ic_menu_slideshow })
+            thumbnail.scaleType = ImageView.ScaleType.CENTER
+        }
         addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@MainActivity).apply {
                 text = item.name; setTextColor(white); textSize = 13f; maxLines = 2; typeface = Typeface.DEFAULT_BOLD
             }, matchWrap())
             addView(TextView(this@MainActivity).apply {
-                text = if (item.section == "Séries") "Série • toque para ver episódios" else item.group
+                text = when (item.section) { "Séries" -> "Série • toque para ver temporadas"; "Episódios" -> item.group; else -> item.group }
                 setTextColor(muted); textSize = 10f; maxLines = 1; setPadding(0, dp(2), 0, 0)
             }, matchWrap())
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        addView(makeSmallButton(if (item.section == "Séries") "EPISÓDIOS" else "ASSISTIR") {
-            openContentDetails(item)
+        addView(makeSmallButton(when (item.section) { "Séries" -> "TEMPORADAS"; "Episódios" -> "ASSISTIR"; else -> "DETALHES" }) {
+            if (item.section == "Episódios") play(item) else openContentDetails(item)
         })
-        setOnClickListener { openContentDetails(item) }
+        setOnClickListener { if (item.section == "Episódios") play(item) else openContentDetails(item) }
     }
 
     private fun openContentDetails(item: MediaEntry) {
@@ -1070,7 +1150,7 @@ class MainActivity : AppCompatActivity() {
                         if (id.isNotBlank()) episodes.add(MediaEntry(
                             title, streamUrl("series", id, ext), "Temporada $season", "Episódios", id, ext,
                             series.seriesId, enrichedSeries.releaseDate, enrichedSeries.plot, enrichedSeries.year,
-                            enrichedSeries.director, enrichedSeries.cast
+                            enrichedSeries.director, enrichedSeries.cast, enrichedSeries.posterUrl
                         ))
                     }
                 }
@@ -1080,9 +1160,12 @@ class MainActivity : AppCompatActivity() {
                         showCatalog()
                         toast("Nenhum episódio foi retornado para esta série.")
                     } else {
-                        entries.removeAll { it.section == "Episódios" }
-                        entries.addAll(episodes)
+                        activeSeriesForEpisodes = enrichedSeries
+                        episodeEntries.clear()
+                        episodeEntries.addAll(episodes)
+                        selectedSeason = null
                         activeSection = "Episódios"
+                        selectedFolder = null
                         showCatalog()
                         showSection("Episódios")
                     }
@@ -1101,7 +1184,7 @@ class MainActivity : AppCompatActivity() {
     private fun play(item: MediaEntry) {
         if (item.url.isBlank()) { toast("Este item não possui um endereço de reprodução disponível."); return }
         currentPlaying = item
-        currentPlaybackQueue = entries.filter { it.section == item.section && it.url.isNotBlank() }
+        currentPlaybackQueue = (if (item.section == "Episódios") episodeEntries else entries.filter { it.section == item.section }).filter { it.url.isNotBlank() }
         currentPlaybackIndex = currentPlaybackQueue.indexOfFirst { it.url == item.url }
         try {
             val currentPlayer = player ?: run { initializePlayer(); player ?: throw IllegalStateException("Player indisponível") }
@@ -1362,6 +1445,8 @@ class MainActivity : AppCompatActivity() {
         when {
             fullScreenMode -> { fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
             detailScreenVisible -> { detailScreenVisible = false; showCatalog() }
+            activeSection == "Episódios" && selectedSeason != null -> { selectedSeason = null; showSection("Episódios") }
+            activeSection == "Episódios" -> { activeSection = "Séries"; selectedFolder = null; selectedSeason = null; showCatalog() }
             activeSection != "INICIO" && entries.isNotEmpty() -> { selectedFolder = null; searchQuery = ""; showHome() }
             else -> super.onBackPressed()
         }
