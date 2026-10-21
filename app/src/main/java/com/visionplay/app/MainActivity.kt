@@ -17,6 +17,9 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
+import android.os.Handler
+import android.os.Looper
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +48,12 @@ private data class MediaEntry(
     val section: String,
     val itemId: String = "",
     val extension: String = "",
-    val seriesId: String = ""
+    val seriesId: String = "",
+    val releaseDate: String = "",
+    val plot: String = "",
+    val year: String = "",
+    val director: String = "",
+    val cast: String = ""
 )
 
 class MainActivity : AppCompatActivity() {
@@ -70,10 +78,35 @@ class MainActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
     private val entries = mutableListOf<MediaEntry>()
-    private var activeSection = "Canais ao vivo"
+    private var activeSection = "INICIO"
     private var selectedFolder: String? = null
     private var visibleLimit = 100
     private var fullScreenMode = false
+    private var playbackControlsVisible = true
+    private var currentPlaying: MediaEntry? = null
+    private var currentPlaybackQueue: List<MediaEntry> = emptyList()
+    private var currentPlaybackIndex = -1
+    private val playbackHandler = Handler(Looper.getMainLooper())
+    private var playbackSeekBar: SeekBar? = null
+    private var playbackTimeLabel: TextView? = null
+    private var playbackOverlay: LinearLayout? = null
+    private val playbackTicker = object : Runnable {
+        override fun run() {
+            val exo = player
+            if (exo != null && fullScreenMode) {
+                val duration = exo.duration.coerceAtLeast(0L)
+                val position = exo.currentPosition.coerceAtLeast(0L)
+                playbackSeekBar?.let { bar ->
+                    if (duration > 0) {
+                        bar.max = 1000
+                        bar.progress = ((position.toDouble() / duration) * 1000).toInt().coerceIn(0, 1000)
+                    } else { bar.max = 1000; bar.progress = 0 }
+                }
+                playbackTimeLabel?.text = "${formatTime(position)} / ${if (duration > 0) formatTime(duration) else "--:--"}"
+                playbackHandler.postDelayed(this, 1000)
+            }
+        }
+    }
     @Volatile private var isLoading = false
 
     // Credentials are kept only in memory; this prototype does not save them to disk.
@@ -247,8 +280,7 @@ class MainActivity : AppCompatActivity() {
                     entries.clear()
                     entries.addAll(loaded)
                     isLoading = false
-                    activeSection = if (entries.any { it.section == "Canais ao vivo" }) "Canais ao vivo"
-                        else if (entries.any { it.section == "Filmes" }) "Filmes" else "Séries"
+                    activeSection = "INICIO"
                     selectedFolder = null
                     searchInputTextReset()
                     showHome()
@@ -359,6 +391,11 @@ class MainActivity : AppCompatActivity() {
                     var id = ""
                     var name = "Conteúdo"
                     var categoryId = ""
+                    var plot = ""
+                    var releaseDate = ""
+                    var year = ""
+                    var director = ""
+                    var cast = ""
                     var extension = when (type) { "live" -> "ts"; "movie" -> "mp4"; else -> "mp4" }
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -367,6 +404,11 @@ class MainActivity : AppCompatActivity() {
                             "name", "title" -> name = reader.nextStringSafe()
                             "category_id" -> categoryId = reader.nextStringSafe()
                             "container_extension" -> extension = reader.nextStringSafe().ifBlank { extension }
+                            "plot", "description" -> plot = reader.nextStringSafe()
+                            "releaseDate", "release_date" -> releaseDate = reader.nextStringSafe()
+                            "year" -> year = reader.nextStringSafe()
+                            "director" -> director = reader.nextStringSafe()
+                            "cast", "actors" -> cast = reader.nextStringSafe()
                             else -> reader.skipValue()
                         }
                     }
@@ -378,7 +420,7 @@ class MainActivity : AppCompatActivity() {
                             "movie" -> streamUrl("movie", id, extension)
                             else -> "" // Episodes are fetched only when the series is opened.
                         }
-                        result.add(MediaEntry(name, url, category, section, id, extension, if (type == "series") id else ""))
+                        result.add(MediaEntry(name, url, category, section, id, extension, if (type == "series") id else "", releaseDate, plot, year, director, cast))
                     }
                 }
                 reader.endArray()
@@ -404,151 +446,129 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
-        if (::playerView.isInitialized) playerView.player = null
-        root = baseScreen()
-        root.setPadding(if (fullScreenMode) 0 else dp(10), if (fullScreenMode) 0 else dp(8), if (fullScreenMode) 0 else dp(10), if (fullScreenMode) 0 else dp(8))
-
-        if (fullScreenMode) {
-            val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-            playerView = PlayerView(this).apply {
-                useController = true
-                setBackgroundColor(Color.BLACK)
-                player = this@MainActivity.player
-            }
-            playerView.setOnClickListener {
-                fullScreenMode = false
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-                showHome()
-            }
-            frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
-            val back = makeSmallButton("✕  VOLTAR À LISTA") {
-                fullScreenMode = false
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-                showHome()
-            }
-            frame.addView(back, FrameLayout.LayoutParams(-2, dp(44), Gravity.TOP or Gravity.END).apply {
-                topMargin = dp(12); marginEnd = dp(12)
-            })
-            root.addView(frame, LinearLayout.LayoutParams(-1, -1))
-            setContentView(root)
-            return
-        }
-
+        fullScreenMode = false
+        playbackHandler.removeCallbacks(playbackTicker)
+        playerViewSafeDetach()
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        root = baseScreen()
+        root.setPadding(dp(20), dp(14), dp(20), dp(14))
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, dp(4), dp(8))
+            setPadding(dp(4), 0, dp(4), dp(10))
         }
+        val miniLogo = TextView(this).apply {
+            text = "▶"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(white)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(blue); cornerRadius = dp(8).toFloat()
+            }
+        }
+        header.addView(miniLogo, LinearLayout.LayoutParams(dp(38), dp(32)).apply { marginEnd = dp(10) })
         header.addView(TextView(this).apply {
-            text = "VISION PLAY"
-            textSize = 22f
-            setTextColor(blue)
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = .04f
+            text = "VISION PLAY TV"; textSize = 20f; setTextColor(white)
+            typeface = Typeface.DEFAULT_BOLD; letterSpacing = .03f
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(TextView(this).apply {
-            text = "SEU STREAMING EM UM SÓ LUGAR"
-            textSize = 10f
-            setTextColor(muted)
-            letterSpacing = .08f
-            gravity = Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(makeSmallButton("CONTA") { stopPlayback(); selectedFolder = null; showLogin() })
+        header.addView(makeSmallButton("CONTA") { stopPlayback(); showLogin() })
         root.addView(header, matchWrap())
 
-        // Landscape streaming layout: player on the left, browsing panel on the right.
-        val workspace = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.FILL
-            setBackgroundColor(bg)
-        }
+        root.addView(TextView(this).apply {
+            text = "O QUE VOCÊ QUER ASSISTIR?"; textSize = 12f; setTextColor(muted)
+            typeface = Typeface.DEFAULT_BOLD; letterSpacing = .12f
+            setPadding(dp(4), dp(8), 0, dp(14))
+        }, matchWrap())
 
-        val playerPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, dp(8), 0)
-            setBackgroundColor(bg)
-        }
-        val playerFrame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        playerView = PlayerView(this).apply {
-            useController = true
-            setBackgroundColor(Color.BLACK)
-            player = this@MainActivity.player
-        }
-        playerView.setOnClickListener {
-            fullScreenMode = true
-            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
-            showHome()
-        }
-        playerFrame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
-        playerFrame.addView(makeSmallButton("⛶") {
-            fullScreenMode = true
-            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
-            showHome()
-        }, FrameLayout.LayoutParams(dp(54), dp(42), Gravity.BOTTOM or Gravity.END).apply {
-            bottomMargin = dp(10); marginEnd = dp(10)
-        })
-        playerPanel.addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
-        playerPanel.addView(TextView(this).apply {
-            text = "TOQUE NO VÍDEO PARA AMPLIAR"
-            textSize = 10f
-            setTextColor(muted)
+        val cards = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(7), 0, 0)
-        }, LinearLayout.LayoutParams(-1, dp(24)))
-        workspace.addView(playerPanel, LinearLayout.LayoutParams(0, -1, 1.05f))
+        }
+        val sections = listOf(
+            Triple("CANAIS AO VIVO", "${entries.count { it.section == "Canais ao vivo" }} canais", "◉") to "Canais ao vivo",
+            Triple("FILMES", "${entries.count { it.section == "Filmes" }} títulos", "▶") to "Filmes",
+            Triple("SÉRIES", "${entries.count { it.section == "Séries" }} séries", "▤") to "Séries"
+        )
+        sections.forEach { pair ->
+            val cardData = pair.first
+            val section = pair.second
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(panel); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.rgb(31, 57, 86))
+                }
+                addView(TextView(this@MainActivity).apply {
+                    text = cardData.third; textSize = 34f; gravity = Gravity.CENTER; setTextColor(cyan)
+                }, LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(TextView(this@MainActivity).apply {
+                    text = cardData.first; textSize = 14f; gravity = Gravity.CENTER
+                    setTextColor(white); typeface = Typeface.DEFAULT_BOLD
+                }, matchWrap())
+                addView(TextView(this@MainActivity).apply {
+                    text = cardData.second; textSize = 11f; gravity = Gravity.CENTER
+                    setTextColor(muted); setPadding(0, dp(6), 0, 0)
+                }, matchWrap())
+                isFocusable = true
+                setOnClickListener {
+                    activeSection = section
+                    selectedFolder = null
+                    visibleLimit = 100
+                    searchQuery = ""
+                    showCatalog()
+                }
+            }
+            cards.addView(card, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                marginEnd = if (section != "Séries") dp(12) else 0
+            })
+        }
+        root.addView(cards, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+    }
 
-        val catalogPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), 0, 0, 0)
-            setBackgroundColor(bg)
-        }
-        val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        listOf("Canais ao vivo", "Filmes", "Séries").forEach { label ->
-            tabs.addView(makeSmallButton(when (label) { "Canais ao vivo" -> "TV AO VIVO"; else -> label.uppercase() }) {
-                activeSection = label
-                selectedFolder = null
-                visibleLimit = 100
-                showSection(label)
-            }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
-        }
-        catalogPanel.addView(tabs, matchWrap())
+    private fun showCatalog() {
+        fullScreenMode = false
+        playbackHandler.removeCallbacks(playbackTicker)
+        playerViewSafeDetach()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        root = baseScreen()
+        root.setPadding(dp(16), dp(10), dp(16), dp(10))
 
-        searchInput = input("Buscar canais, filmes ou séries...", InputType.TYPE_CLASS_TEXT).apply {
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(makeSmallButton("‹  INÍCIO") { selectedFolder = null; searchQuery = ""; showHome() })
+        header.addView(TextView(this).apply {
+            text = when (activeSection) { "Canais ao vivo" -> "CANAIS AO VIVO"; "Filmes" -> "FILMES"; "Séries" -> "SÉRIES"; else -> activeSection.uppercase() }
+            textSize = 18f; setTextColor(white); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        header.addView(makeSmallButton("⌂") { selectedFolder = null; searchQuery = ""; showHome() })
+        root.addView(header, matchWrap())
+
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("Canais ao vivo", "Filmes", "Séries").forEach { section ->
+            tabs.addView(makeSmallButton(when (section) { "Canais ao vivo" -> "AO VIVO"; else -> section.uppercase() }) {
+                activeSection = section; selectedFolder = null; visibleLimit = 100; searchQuery = ""; showCatalog()
+            }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) })
+        }
+        root.addView(tabs, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        searchInput = input("Buscar nesta seção...", InputType.TYPE_CLASS_TEXT).apply {
             setText(searchQuery)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    searchQuery = s?.toString().orEmpty()
-                    selectedFolder = null
-                    visibleLimit = 100
-                    showSection(activeSection)
+                    searchQuery = s?.toString().orEmpty(); selectedFolder = null; visibleLimit = 100
+                    if (::contentBox.isInitialized) showSection(activeSection)
                 }
                 override fun afterTextChanged(s: Editable?) {}
             })
         }
-        catalogPanel.addView(searchInput, LinearLayout.LayoutParams(-1, dp(44)).apply {
-            topMargin = dp(7); bottomMargin = dp(6)
-        })
+        root.addView(searchInput, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(7); bottomMargin = dp(6) })
         contentBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setPadding(0, 0, dp(3), 0)
-        }
+        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
         scroll.addView(contentBox)
-        catalogPanel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        workspace.addView(catalogPanel, LinearLayout.LayoutParams(0, -1, 1f))
-        root.addView(workspace, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         showSection(activeSection)
     }
@@ -568,23 +588,22 @@ class MainActivity : AppCompatActivity() {
         }
         contentBox.addView(TextView(this).apply {
             text = when (section) {
-                "Canais ao vivo" -> "TV AO VIVO  •  ${all.size} canais"
-                "Filmes" -> "FILMES  •  ${all.size} títulos"
-                "Séries" -> "SÉRIES  •  ${all.size} títulos"
+                "Canais ao vivo" -> "${all.size} canais disponíveis"
+                "Filmes" -> "${all.size} filmes disponíveis"
+                "Séries" -> "${all.size} séries disponíveis"
                 else -> "$section  •  ${all.size} itens"
             }
-            setTextColor(white); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(2), dp(12), 0, dp(10))
+            setTextColor(white); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(2), dp(9), 0, dp(9))
         }, matchWrap())
 
         if (filtered.isEmpty()) {
             contentBox.addView(TextView(this).apply {
-                text = if (all.isEmpty()) "O servidor não disponibilizou itens nesta seção. Confira se seu plano inclui este catálogo e se a API Xtream está habilitada." else "Nenhum resultado encontrado. Tente outro termo."
+                text = if (all.isEmpty()) "O servidor não disponibilizou itens nesta seção. Confira se seu plano inclui este catálogo." else "Nenhum resultado encontrado. Tente outro termo."
                 setTextColor(muted); textSize = 14f; setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
             }, matchWrap())
             return
         }
-
         if (query.isBlank() && selectedFolder == null && section != "Episódios") {
             val folders = filtered.groupBy { folderFor(it) }.entries.sortedWith(Comparator { a, b ->
                 val priorityDifference = folderPriority(a.key) - folderPriority(b.key)
@@ -593,43 +612,31 @@ class MainActivity : AppCompatActivity() {
                 else a.key.compareTo(b.key, ignoreCase = true)
             })
             folders.forEach { folderEntry ->
-                val folder = folderEntry.key
-                val items = folderEntry.value
-                contentBox.addView(makeFolderRow(folder, items.size) {
-                    selectedFolder = folder
-                    visibleLimit = 100
-                    showSection(section)
-                }, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(7) })
+                contentBox.addView(makeFolderRow(folderEntry.key, folderEntry.value.size) {
+                    selectedFolder = folderEntry.key; visibleLimit = 100; showSection(section)
+                }, LinearLayout.LayoutParams(-1, dp(64)).apply { bottomMargin = dp(6) })
             }
             return
         }
-
         if (section == "Episódios") {
             contentBox.addView(makeSmallButton("‹  VOLTAR PARA SÉRIES") {
-                activeSection = "Séries"; selectedFolder = null; showSection("Séries")
-            }, LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(8) })
+                activeSection = "Séries"; selectedFolder = null; showCatalog()
+            }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
         }
         if (query.isBlank() && selectedFolder != null) {
             contentBox.addView(makeSmallButton("‹  TODAS AS PASTAS") { selectedFolder = null; showSection(section) },
-                LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(8) })
+                LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
         }
         val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
         val page = visible.take(visibleLimit)
-        page.forEach { item ->
-            contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(62)).apply { bottomMargin = dp(7) })
-        }
-        if (visible.size > page.size) {
-            contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size) {
-                visibleLimit += 100
-                showSection(section)
-            }, LinearLayout.LayoutParams(-1, dp(60)).apply { topMargin = dp(4); bottomMargin = dp(10) })
-        }
-        if (page.isEmpty() && visible.isEmpty()) {
-            contentBox.addView(TextView(this).apply {
-                text = "Nenhum conteúdo nesta pasta."
-                setTextColor(muted); textSize = 14f; setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
-            }, matchWrap())
-        }
+        page.forEach { item -> contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(60)).apply { bottomMargin = dp(6) }) }
+        if (visible.size > page.size) contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size) {
+            visibleLimit += 100; showSection(section)
+        }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(4); bottomMargin = dp(8) })
+        if (page.isEmpty() && visible.isEmpty()) contentBox.addView(TextView(this).apply {
+            text = "Nenhum conteúdo nesta pasta."; setTextColor(muted); textSize = 14f
+            setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
+        }, matchWrap())
     }
 
     private fun folderPriority(name: String): Int {
@@ -748,6 +755,14 @@ class MainActivity : AppCompatActivity() {
         io.execute {
             try {
                 val obj = fetchJsonObject(apiUrl("get_series_info", "series_id", series.seriesId))
+                val info = obj.getAsJsonObject("info")
+                val enrichedSeries = series.copy(
+                    plot = info?.stringValue("plot")?.ifBlank { series.plot } ?: series.plot,
+                    releaseDate = info?.stringValue("releaseDate")?.ifBlank { series.releaseDate } ?: series.releaseDate,
+                    year = info?.stringValue("year")?.ifBlank { series.year } ?: series.year,
+                    director = info?.stringValue("director")?.ifBlank { series.director } ?: series.director,
+                    cast = info?.stringValue("cast")?.ifBlank { series.cast } ?: series.cast
+                )
                 val episodesRoot = obj.getAsJsonObject("episodes")
                     ?: throw IllegalStateException("O servidor não retornou episódios para esta série.")
                 val episodes = mutableListOf<MediaEntry>()
@@ -759,24 +774,28 @@ class MainActivity : AppCompatActivity() {
                         val id = ep.stringValue("id")
                         val title = ep.stringValue("title").ifBlank { "Temporada $season • Episódio ${episodes.size + 1}" }
                         val ext = ep.stringValue("container_extension").ifBlank { "mp4" }
-                        if (id.isNotBlank()) episodes.add(MediaEntry(title, streamUrl("series", id, ext), "Temporada $season", "Episódios", id, ext))
+                        if (id.isNotBlank()) episodes.add(MediaEntry(
+                            title, streamUrl("series", id, ext), "Temporada $season", "Episódios", id, ext,
+                            series.seriesId, enrichedSeries.releaseDate, enrichedSeries.plot, enrichedSeries.year,
+                            enrichedSeries.director, enrichedSeries.cast
+                        ))
                     }
                 }
                 runOnUiThread {
                     isLoading = false
                     if (episodes.isEmpty()) {
-                        showHome()
+                        showCatalog()
                         toast("Nenhum episódio foi retornado para esta série.")
                     } else {
                         entries.removeAll { it.section == "Episódios" }
                         entries.addAll(episodes)
                         activeSection = "Episódios"
-                        showHome()
+                        showCatalog()
                         showSection("Episódios")
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { isLoading = false; showHome(); toast(safeError(e)) }
+                runOnUiThread { isLoading = false; showCatalog(); toast(safeError(e)) }
             }
         }
     }
@@ -787,24 +806,122 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun play(item: MediaEntry) {
-        if (item.url.isBlank()) {
-            toast("Este item não possui um endereço de reprodução disponível.")
-            return
-        }
+        if (item.url.isBlank()) { toast("Este item não possui um endereço de reprodução disponível."); return }
+        currentPlaying = item
+        currentPlaybackQueue = entries.filter { it.section == item.section && it.url.isNotBlank() }
+        currentPlaybackIndex = currentPlaybackQueue.indexOfFirst { it.url == item.url }
         try {
-            val currentPlayer = player ?: run {
-                initializePlayer()
-                player ?: throw IllegalStateException("Player indisponível")
-            }
-            currentPlayer.stop()
-            currentPlayer.clearMediaItems()
+            val currentPlayer = player ?: run { initializePlayer(); player ?: throw IllegalStateException("Player indisponível") }
+            currentPlayer.stop(); currentPlayer.clearMediaItems()
             currentPlayer.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.url)).build())
-            currentPlayer.prepare()
-            currentPlayer.playWhenReady = true
-            toast("Abrindo: ${item.name}")
-        } catch (e: Exception) {
-            toast("Não foi possível abrir este conteúdo: ${e.message.orEmpty().take(100)}")
+            currentPlayer.prepare(); currentPlayer.playWhenReady = true
+            showPlaybackScreen()
+        } catch (e: Exception) { toast("Não foi possível abrir este conteúdo: ${e.message.orEmpty().take(100)}") }
+    }
+
+    private fun showPlaybackScreen() {
+        fullScreenMode = true
+        playbackControlsVisible = true
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK); setPadding(0, 0, 0, 0) }
+        val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        playerView = PlayerView(this).apply {
+            useController = false
+            setBackgroundColor(Color.BLACK)
+            player = this@MainActivity.player
         }
+        playerView.setOnClickListener { togglePlaybackControls() }
+        frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xCC050911.toInt()); cornerRadius = dp(14).toFloat()
+            }
+        }
+        playbackOverlay = overlay
+        val item = currentPlaying
+        overlay.addView(TextView(this).apply {
+            text = item?.name.orEmpty(); textSize = 20f; setTextColor(white); typeface = Typeface.DEFAULT_BOLD
+        }, matchWrap())
+        val meta = listOfNotNull(
+            item?.releaseDate?.takeIf { it.isNotBlank() }?.let { "Data: $it" },
+            item?.year?.takeIf { it.isNotBlank() }?.let { "Ano: $it" },
+            item?.director?.takeIf { it.isNotBlank() }?.let { "Direção: $it" },
+            item?.cast?.takeIf { it.isNotBlank() }?.let { "Elenco: $it" }
+        ).joinToString("  •  ")
+        if (meta.isNotBlank()) overlay.addView(TextView(this).apply {
+            text = meta; textSize = 11f; setTextColor(muted); setPadding(0, dp(4), 0, dp(2)); maxLines = 2
+        }, matchWrap())
+        if (!item?.plot.isNullOrBlank()) overlay.addView(TextView(this).apply {
+            text = item?.plot; textSize = 12f; setTextColor(white); maxLines = 3; setPadding(0, dp(5), 0, dp(4))
+        }, matchWrap())
+
+        val seekRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        playbackSeekBar = SeekBar(this).apply {
+            progressTintList = android.content.res.ColorStateList.valueOf(cyan)
+            thumbTintList = android.content.res.ColorStateList.valueOf(white)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) playbackTimeLabel?.text = "${formatTime((player?.duration?.coerceAtLeast(0L) ?: 0L) * progress / 1000)} / ${player?.duration?.takeIf { it > 0 }?.let { formatTime(it) } ?: "--:--"}"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) { playbackControlsVisible = true }
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val duration = player?.duration?.coerceAtLeast(0L) ?: 0L
+                    if (duration > 0) player?.seekTo(duration * (seekBar?.progress ?: 0) / 1000)
+                }
+            })
+        }
+        seekRow.addView(playbackSeekBar, LinearLayout.LayoutParams(0, dp(36), 1f))
+        playbackTimeLabel = TextView(this).apply { text = "00:00 / --:--"; textSize = 11f; setTextColor(white); setPadding(dp(8), 0, 0, 0) }
+        seekRow.addView(playbackTimeLabel, LinearLayout.LayoutParams(-2, -2))
+        overlay.addView(seekRow, matchWrap())
+
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        controls.addView(makeSmallButton("↶ 15s") { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0L)) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
+        controls.addView(makeSmallButton("Ⅱ / ▶") { player?.let { if (it.isPlaying) it.pause() else it.play() } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
+        controls.addView(makeSmallButton("15s ↷") { player?.let { exo -> exo.seekTo((exo.currentPosition + 15000).coerceAtMost(exo.duration.coerceAtLeast(0L))) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
+        controls.addView(makeSmallButton(if (item?.section == "Canais ao vivo") "PRÓX. CANAL  ›" else "PRÓXIMO  ›") { playNext() }, LinearLayout.LayoutParams(0, dp(44), 1.2f))
+        overlay.addView(controls, matchWrap())
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        bottom.addView(TextView(this).apply {
+            text = "Toque no vídeo para mostrar/ocultar controles"; textSize = 10f; setTextColor(muted)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        bottom.addView(makeSmallButton("VOLTAR À LISTA") {
+            fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog()
+        })
+        overlay.addView(bottom, LinearLayout.LayoutParams(-1, dp(38)))
+        frame.addView(overlay, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
+            leftMargin = dp(12); rightMargin = dp(12); bottomMargin = dp(12)
+        })
+        root.addView(frame, LinearLayout.LayoutParams(-1, -1))
+        setContentView(root)
+        playbackHandler.removeCallbacks(playbackTicker)
+        playbackHandler.post(playbackTicker)
+    }
+
+    private fun togglePlaybackControls() {
+        playbackControlsVisible = !playbackControlsVisible
+        playbackOverlay?.visibility = if (playbackControlsVisible) View.VISIBLE else View.GONE
+        if (playbackControlsVisible) playbackHandler.removeCallbacks(playbackTicker).also { playbackHandler.post(playbackTicker) }
+    }
+
+    private fun playNext() {
+        if (currentPlaybackQueue.isEmpty()) { toast("Não há outro conteúdo nesta lista."); return }
+        val next = (currentPlaybackIndex + 1).coerceAtMost(currentPlaybackQueue.lastIndex)
+        if (next == currentPlaybackIndex) { toast("Você chegou ao último conteúdo desta lista."); return }
+        play(currentPlaybackQueue[next])
+    }
+
+    private fun formatTime(ms: Long): String {
+        val total = (ms / 1000).coerceAtLeast(0L)
+        val hours = total / 3600
+        val minutes = (total % 3600) / 60
+        val seconds = total % 60
+        return if (hours > 0) String.format(java.util.Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
+            else String.format(java.util.Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
     private fun loadM3uFile(uri: Uri) {
@@ -818,7 +935,6 @@ class MainActivity : AppCompatActivity() {
                 var group = "Outros"
                 contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.useLines { lines ->
                     lines.forEach { raw ->
-                        if (found.size >= MAX_ITEMS_PER_SECTION) return@forEach
                         val value = raw.trim().removePrefix("\uFEFF")
                         if (value.startsWith("#EXTINF", true)) {
                             name = value.substringAfter(",", "Conteúdo").trim().ifBlank { "Conteúdo" }
@@ -834,7 +950,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     isLoading = false
                     entries.clear(); entries.addAll(found)
-                    activeSection = "Canais ao vivo"
+                    activeSection = "INICIO"
                     showHome()
                     toast("Lista importada: ${found.size} itens")
                 }
@@ -866,10 +982,6 @@ class MainActivity : AppCompatActivity() {
             addView(TextView(this@MainActivity).apply {
                 text = "VISION PLAY TV"; textSize = 25f; setTextColor(blue)
                 typeface = Typeface.DEFAULT_BOLD; letterSpacing = .02f
-            }, matchWrap())
-            addView(TextView(this@MainActivity).apply {
-                text = "CANAIS AO VIVO  •  FILMES  •  SÉRIES"; textSize = 10f
-                setTextColor(muted); letterSpacing = .06f
             }, matchWrap())
         }, LinearLayout.LayoutParams(0, -2, 1f))
     }
@@ -905,13 +1017,22 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
+    @Deprecated("Deprecated in Android API")
+    override fun onBackPressed() {
+        when {
+            fullScreenMode -> { fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
+            activeSection != "INICIO" && entries.isNotEmpty() -> { selectedFolder = null; searchQuery = ""; showHome() }
+            else -> super.onBackPressed()
+        }
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        if (!fullScreenMode && !isFinishing && entries.isNotEmpty()) showHome()
     }
 
     override fun onStop() { super.onStop(); player?.pause() }
     override fun onDestroy() {
+        playbackHandler.removeCallbacks(playbackTicker)
         playerViewSafeDetach()
         io.shutdownNow()
         player?.release()

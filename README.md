@@ -1,24 +1,21 @@
-# Vision Play TV — Xtream API
+# Vision Play TV
 
-Aplicativo Android para celular, Android TV e TV Box, com interface escura e azul.
+Aplicativo Android de streaming com suporte à API Xtream Codes e importação de arquivo M3U.
 
-## Recursos desta versão
-- Conexão por URL do servidor, usuário e senha Xtream.
-- Aceita URL base ou URL completa com `player_api.php` / `get.php`; o app normaliza o endereço para a API.
-- Carrega os catálogos completos de canais ao vivo, filmes e séries, sem o antigo limite de 3.000 itens.
-- Leitura JSON em fluxo e carregamento em segundo plano para lidar com listas extensas.
-- Pastas de canais por emissora/região quando os nomes permitem identificar; filmes pelas categorias do servidor; séries por streaming quando reconhecido no nome/categoria.
-- Busca por título, categoria e pasta.
-- Tela cheia em modo paisagem com botão para voltar.
-- Episódios de séries consultados ao abrir uma série.
-- Credenciais mantidas apenas em memória nesta versão.
+## Interface v7
+- Tela inicial com opções separadas para Canais ao vivo, Filmes e Séries.
+- Catálogos acessados somente após selecionar uma seção.
+- Reprodução em tela cheia horizontal ao escolher um conteúdo.
+- Toque no vídeo para mostrar ou ocultar controles, sem sair da reprodução.
+- Barra de progresso arrastável, posição/duração, pausa/reprodução, saltos de 15 segundos e próximo item.
+- Exibe metadados de filmes e séries quando a API do provedor os disponibiliza.
+- Navegação de voltar para catálogo e tela inicial.
 
-## Gerar APK
-O GitHub Actions compila `app-debug.apk` a cada push na branch `main` ou manualmente em Actions > Build VisionPlay APK > Run workflow. Baixe o artefato `VisionPlay-APK-debug`.
+## Compilar
+O workflow GitHub Actions em `.github/workflows/build-apk.yml` compila o APK debug e publica o artefato `VisionPlay-APK-debug`.
 
-## Observações
-- O aplicativo baixa metadados/catálogos, não baixa os arquivos de vídeo inteiros para o aparelho.
-- Catálogos grandes (por exemplo, dezenas de milhares de filmes) podem demorar alguns minutos, dependendo do servidor e da conexão.
-- Os agrupamentos por emissora/região/plataforma dependem dos nomes e categorias fornecidos pela API. Quando o provedor não informa esses dados, o item fica em uma pasta genérica.
-- Prefira HTTPS. Em HTTP, usuário e senha trafegam sem criptografia.
-- A disponibilidade de canais, filmes e séries depende dos direitos e do plano autorizado pelo provedor.
+## Conexão
+Informe o endereço-base do servidor Xtream, usuário e senha. Os dados de acesso ficam apenas em memória nesta versão. Prefira HTTPS quando disponível. O aplicativo não hospeda nem inclui conteúdo: a disponibilidade depende da conta e do servidor do usuário.
+
+## Observação
+O código deve ser compilado e testado no GitHub Actions e no dispositivo antes de considerar esta versão validada.

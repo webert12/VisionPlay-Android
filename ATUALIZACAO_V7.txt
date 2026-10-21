@@ -1,0 +1,19 @@
+VISION PLAY TV v7 — EXPERIÊNCIA STREAMING
+
+Principais mudanças:
+- Tela inicial simplificada com três opções: Canais ao vivo, Filmes e Séries.
+- A tela inicial não inicia nem exibe um conteúdo automaticamente.
+- Ao escolher uma seção, abre o catálogo; ao apertar voltar, retorna à tela inicial.
+- Ao escolher um canal, filme ou episódio, a reprodução abre em tela cheia horizontal.
+- Um toque no vídeo mostra/oculta os controles, sem alternar a tela cheia.
+- Controles de reprodução: voltar 15 segundos, pausar/reproduzir, avançar 15 segundos, próximo canal/conteúdo/episódio.
+- Linha de progresso arrastável e tempo decorrido/duração em HH:MM:SS quando necessário.
+- Detalhes disponíveis fornecidos pela API: nome, data/ano, sinopse, direção e elenco.
+- Dados de detalhes de série são reaproveitados para os episódios quando retornados pela API.
+- Título e ícone pequenos aparecem na tela inicial; removido o subtítulo com os nomes das seções.
+- Versão Android atualizada para 1.3.0 (versionCode 4).
+
+NOTAS:
+- Os detalhes dependem das informações que o provedor retorna pela API Xtream.
+- A reprodução deve ser validada no aparelho após a compilação do GitHub Actions.
+- O projeto ainda não foi compilado neste ambiente.
