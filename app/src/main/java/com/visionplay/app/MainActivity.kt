@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private val entries = mutableListOf<MediaEntry>()
     private var activeSection = "Canais ao vivo"
     private var selectedFolder: String? = null
+    private var visibleLimit = 100
     private var fullScreenMode = false
     @Volatile private var isLoading = false
 
@@ -458,7 +459,7 @@ class MainActivity : AppCompatActivity() {
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("Canais ao vivo", "Filmes", "Séries").forEach { label ->
             tabs.addView(makeSmallButton(label) {
-                activeSection = label; selectedFolder = null; showSection(label)
+                activeSection = label; selectedFolder = null; visibleLimit = 100; showSection(label)
             }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(5) })
         }
         root.addView(tabs, matchWrap())
@@ -469,6 +470,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     searchQuery = s?.toString().orEmpty()
                     selectedFolder = null
+                    visibleLimit = 100
                     showSection(activeSection)
                 }
                 override fun afterTextChanged(s: Editable?) {}
@@ -516,10 +518,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (query.isBlank() && selectedFolder == null && section != "Episódios") {
-            val folders = filtered.groupBy { folderFor(it) }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
-            folders.forEach { (folder, items) ->
+            val folders = filtered.groupBy { folderFor(it) }.entries.sortedWith(Comparator { a, b ->
+                val priorityDifference = folderPriority(a.key) - folderPriority(b.key)
+                if (priorityDifference != 0) priorityDifference
+                else if (a.value.size != b.value.size) b.value.size.compareTo(a.value.size)
+                else a.key.compareTo(b.key, ignoreCase = true)
+            })
+            folders.forEach { folderEntry ->
+                val folder = folderEntry.key
+                val items = folderEntry.value
                 contentBox.addView(makeFolderRow(folder, items.size) {
                     selectedFolder = folder
+                    visibleLimit = 100
                     showSection(section)
                 }, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(7) })
             }
@@ -536,8 +546,30 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(8) })
         }
         val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
-        visible.forEach { item ->
+        val page = visible.take(visibleLimit)
+        page.forEach { item ->
             contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(62)).apply { bottomMargin = dp(7) })
+        }
+        if (visible.size > page.size) {
+            contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size) {
+                visibleLimit += 100
+                showSection(section)
+            }, LinearLayout.LayoutParams(-1, dp(60)).apply { topMargin = dp(4); bottomMargin = dp(10) })
+        }
+        if (page.isEmpty() && visible.isEmpty()) {
+            contentBox.addView(TextView(this).apply {
+                text = "Nenhum conteúdo nesta pasta."
+                setTextColor(muted); textSize = 14f; setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
+            }, matchWrap())
+        }
+    }
+
+    private fun folderPriority(name: String): Int {
+        val value = name.lowercase()
+        return when {
+            listOf("adicionados recentemente", "adicionado recentemente", "recentes", "recentemente adicionados", "recently added", "recent additions").any { it in value } -> 0
+            listOf("lançamento", "lancamento", "lançamentos", "lancamentos", "novidades", "new releases", "new movies", "últimos lançamentos", "ultimos lancamentos").any { it in value } -> 1
+            else -> 2
         }
     }
 
@@ -651,7 +683,7 @@ class MainActivity : AppCompatActivity() {
                 val episodesRoot = obj.getAsJsonObject("episodes")
                     ?: throw IllegalStateException("O servidor não retornou episódios para esta série.")
                 val episodes = mutableListOf<MediaEntry>()
-                for ((season, array) in episodesRoot.entrySet()) {
+                for ((season, array) in episodesRoot.entrySet().sortedBy { it.key.toIntOrNull() ?: Int.MAX_VALUE }) {
                     if (!array.isJsonArray) continue
                     for (episode in array.asJsonArray) {
                         if (!episode.isJsonObject) continue
@@ -692,12 +724,18 @@ class MainActivity : AppCompatActivity() {
             return
         }
         try {
-            player?.setMediaItem(MediaItem.fromUri(item.url))
-            player?.prepare()
-            player?.playWhenReady = true
-            toast("Reproduzindo: ${item.name}")
+            val currentPlayer = player ?: run {
+                initializePlayer()
+                player ?: throw IllegalStateException("Player indisponível")
+            }
+            currentPlayer.stop()
+            currentPlayer.clearMediaItems()
+            currentPlayer.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.url)).build())
+            currentPlayer.prepare()
+            currentPlayer.playWhenReady = true
+            toast("Abrindo: ${item.name}")
         } catch (e: Exception) {
-            toast("Não foi possível iniciar este conteúdo.")
+            toast("Não foi possível abrir este conteúdo: ${e.message.orEmpty().take(100)}")
         }
     }
 

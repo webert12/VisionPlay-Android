@@ -1,0 +1,11 @@
+Vision Play TV - atualização v5 (1.2.0)
+
+Correções:
+- A navegação em pastas com milhares de itens agora renderiza em páginas de 100 itens para reduzir consumo de memória e evitar encerramento do aplicativo.
+- Botão Carregar mais conteúdos para continuar navegando sem criar milhares de linhas de uma só vez.
+- Pastas ordenadas primeiro por categorias de recentes/lançamentos quando existirem, depois pela quantidade de conteúdos em ordem decrescente e, por fim, por nome.
+- Reprodução reinicializa o estado do player antes de carregar o novo conteúdo e mostra erros mais úteis.
+- Episódios são ordenados por temporada numérica.
+- Versão do aplicativo 1.2.0 (versionCode 3).
+
+Nota: a compilação precisa ser confirmada no GitHub Actions. A compatibilidade de cada stream depende do formato e codecs entregues pelo servidor Xtream.
