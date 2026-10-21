@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     private val white = Color.WHITE
     private val muted = Color.rgb(154, 169, 190)
     private val io = Executors.newSingleThreadExecutor()
+    private val imageIo = Executors.newFixedThreadPool(3)
 
     private lateinit var root: LinearLayout
     private lateinit var urlInput: EditText
@@ -509,6 +510,7 @@ class MainActivity : AppCompatActivity() {
             text = "VISION PLAY TV"; textSize = 20f; setTextColor(white)
             typeface = Typeface.DEFAULT_BOLD; letterSpacing = .03f
         }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(makeSmallButton("↻") { refreshCatalogManually() })
         header.addView(makeSmallButton("CONTA") { stopPlayback(); showLogin() })
         root.addView(header, matchWrap())
 
@@ -582,6 +584,14 @@ class MainActivity : AppCompatActivity() {
         homeScroll.addView(homeRows)
         root.addView(homeScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+    }
+
+    private fun refreshCatalogManually() {
+        if (isLoading) { toast("Aguarde a operação atual terminar."); return }
+        val saved = loadSavedAccount()
+        if (saved == null) { toast("Conecte sua conta para atualizar os catálogos."); showLogin(); return }
+        toast("Atualizando catálogos do servidor...")
+        connectXtream(saved.first, saved.second, saved.third)
     }
 
     private fun addPosterRail(parent: LinearLayout, title: String, items: List<MediaEntry>) {
@@ -959,11 +969,25 @@ class MainActivity : AppCompatActivity() {
         val symbol = ImageView(this@MainActivity).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = android.graphics.drawable.GradientDrawable().apply { setColor(panel2); cornerRadius = dp(8).toFloat() }
-            if (iconUrl.isNotBlank()) loadPoster(iconUrl, this)
+            val brandLogo = when {
+                name.contains("Netflix", true) -> "https://logo.clearbit.com/netflix.com"
+                name.contains("HBO", true) || name.contains("Max", true) -> "https://logo.clearbit.com/max.com"
+                name.contains("Prime Video", true) || name.contains("Amazon", true) -> "https://logo.clearbit.com/primevideo.com"
+                name.contains("Globoplay", true) || name.contains("Globo Play", true) -> "https://logo.clearbit.com/globoplay.globo.com"
+                name.contains("Disney", true) -> "https://logo.clearbit.com/disneyplus.com"
+                name.contains("Paramount", true) -> "https://logo.clearbit.com/paramountplus.com"
+                name.contains("Apple TV", true) -> "https://logo.clearbit.com/tv.apple.com"
+                name.contains("Crunchyroll", true) -> "https://logo.clearbit.com/crunchyroll.com"
+                name.contains("Globo", true) -> "https://logo.clearbit.com/globo.com"
+                name.contains("SBT", true) -> "https://logo.clearbit.com/sbt.com.br"
+                name.contains("Record", true) -> "https://logo.clearbit.com/r7.com"
+                name.contains("Band", true) -> "https://logo.clearbit.com/band.uol.com.br"
+                else -> ""
+            }
+            val chosenLogo = iconUrl.ifBlank { brandLogo }
+            if (chosenLogo.isNotBlank()) loadPoster(chosenLogo, this)
             else setImageResource(when {
                 name.contains("Carregar mais", true) -> android.R.drawable.ic_input_add
-                name.contains("Netflix", true) || name.contains("HBO", true) || name.contains("Max", true) -> android.R.drawable.ic_media_play
-                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> android.R.drawable.ic_media_play
                 else -> android.R.drawable.ic_menu_gallery
             })
         }
@@ -1011,11 +1035,8 @@ class MainActivity : AppCompatActivity() {
     private fun openContentDetails(item: MediaEntry) {
         if (isLoading) return
         isLoading = true
-        showLoading(when (item.section) {
-            "Filmes" -> "Carregando detalhes do filme..."
-            "Séries" -> "Carregando detalhes da série..."
-            else -> "Consultando programação do canal..."
-        })
+        // Keep the current catalog visible while querying metadata; opening a title must not
+        // look like a full catalog refresh. Only the explicit refresh button reloads catalogs.
         io.execute {
             try {
                 var enriched = item
@@ -1183,7 +1204,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadPoster(url: String, target: ImageView) {
-        io.execute {
+        imageIo.execute {
             try {
                 val connection = openConnection(url)
                 connection.connectTimeout = 8000
@@ -1198,7 +1219,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadSeriesEpisodes(series: MediaEntry) {
         if (isLoading) return
         isLoading = true
-        showLoading("Carregando episódios de ${series.name}...")
+        // Keep the series catalog visible while episode metadata is fetched.
         io.execute {
             try {
                 val obj = fetchJsonObject(apiUrl("get_series_info", "series_id", series.seriesId))
@@ -1263,6 +1284,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun play(item: MediaEntry) {
         if (item.url.isBlank()) { toast("Este item não possui um endereço de reprodução disponível."); return }
+        // Persist the previous item's position before currentPlaying changes or the player stops.
+        currentPlaying?.let { previous -> player?.let { oldPlayer ->
+            if (previous.section == "Filmes" || previous.section == "Episódios") {
+                savePlaybackProgress(previous, oldPlayer.currentPosition, oldPlayer.duration)
+            }
+        } }
         currentPlaying = item
         currentPlaybackQueue = (if (item.section == "Episódios") episodeEntries else entries.filter { it.section == item.section }).filter { it.url.isNotBlank() }
         currentPlaybackIndex = currentPlaybackQueue.indexOfFirst { it.url == item.url }
@@ -1545,6 +1572,7 @@ class MainActivity : AppCompatActivity() {
         playbackHandler.removeCallbacks(playbackTicker)
         playerViewSafeDetach()
         io.shutdownNow()
+        imageIo.shutdownNow()
         player?.release()
         player = null
         super.onDestroy()

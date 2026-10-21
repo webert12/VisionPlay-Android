@@ -1,0 +1,9 @@
+VISION PLAY TV - ATUALIZACAO V12
+
+- Adiciona botão manual de atualizar catálogos na tela inicial.
+- Abrir detalhes e temporadas não substitui mais a tela inteira por uma tela de carregamento; o catálogo não é recarregado ao abrir cada conteúdo.
+- Salva a posição do conteúdo anterior antes de trocar de canal/filme/episódio.
+- Usa executor separado para imagens e capas para não bloquear chamadas da API/catálogo.
+- Pastas de plataformas e algumas emissoras tentam carregar logotipos reais da marca pela internet; se não houver conexão ou o domínio não responder, mantém o ícone alternativo.
+
+Para atualizar: extraia o ZIP e envie a pasta VisionPlay_Android ao repositório existente. A compilação ainda precisa ser confirmada no GitHub Actions.
