@@ -1,0 +1,5 @@
+VISION PLAY TV PREMIUM v9
+
+Esta versão contém a implementação do projeto, com trilhos horizontais de pôsteres na tela inicial, seção de favoritos persistente e retomada da posição de reprodução para o último conteúdo assistido. Mantém os detalhes Xtream/EPG já presentes na base anterior.
+
+Importante: o APK não foi compilado localmente; valide o workflow GitHub Actions antes de instalar.

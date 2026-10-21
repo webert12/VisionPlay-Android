@@ -11,8 +11,8 @@ android {
         applicationId = "com.visionplay.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.5.0"
     }
 
     buildTypes {

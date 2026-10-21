@@ -1,0 +1,15 @@
+VISION PLAY TV PROFISSIONAL v8 - 1.4.0
+
+MELHORIAS
+- Sinopse, data/ano, gênero, diretor, elenco e capa consultados em get_vod_info para filmes.
+- Sinopse, data/ano, gênero, diretor, elenco e capa consultados em get_series_info para séries.
+- Programação atual, descrição e próximo programa via get_short_epg nos canais ao vivo quando a API oferece EPG.
+- Perfil salvo após autenticação bem-sucedida. A senha é criptografada com AES/GCM e chave no Android Keystore.
+- Botão CONTINUAR COMO [usuário] para reconectar sem preencher URL, usuário e senha novamente.
+- Falha na consulta de metadados não deve bloquear a tela de detalhes/reprodução.
+- Versão Android 1.4.0 (versionCode 5).
+
+OBSERVAÇÕES
+- Sinopses, datas, capas e programação dependem dos dados realmente fornecidos pela API Xtream do provedor.
+- O perfil salvo fica neste aparelho; não compartilhe o aparelho desbloqueado com pessoas não autorizadas.
+- A compilação final deve ser confirmada no GitHub Actions.

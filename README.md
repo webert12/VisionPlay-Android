@@ -1,21 +1,19 @@
-# Vision Play TV
+# Vision Play TV Premium v9
 
-Aplicativo Android de streaming com suporte à API Xtream Codes e importação de arquivo M3U.
+Projeto Android nativo para reproduzir conteúdos autorizados de servidores Xtream Codes e listas M3U.
 
-## Interface v7
-- Tela inicial com opções separadas para Canais ao vivo, Filmes e Séries.
-- Catálogos acessados somente após selecionar uma seção.
-- Reprodução em tela cheia horizontal ao escolher um conteúdo.
-- Toque no vídeo para mostrar ou ocultar controles, sem sair da reprodução.
-- Barra de progresso arrastável, posição/duração, pausa/reprodução, saltos de 15 segundos e próximo item.
-- Exibe metadados de filmes e séries quando a API do provedor os disponibiliza.
-- Navegação de voltar para catálogo e tela inicial.
+## Destaques desta atualização
+- Tela inicial horizontal com atalhos para Canais ao vivo, Filmes e Séries.
+- Trilhos horizontais com pôsteres para favoritos, continuar assistindo e conteúdos recentes.
+- Favoritos persistidos localmente no aparelho.
+- Salvamento local da posição de reprodução e tentativa de retomada ao reabrir o mesmo item.
+- Consulta de sinopse, capas e metadados via endpoints Xtream; guia EPG quando disponível no servidor.
+- Perfil de acesso guardado localmente; senha cifrada usando Android Keystore.
 
-## Compilar
-O workflow GitHub Actions em `.github/workflows/build-apk.yml` compila o APK debug e publica o artefato `VisionPlay-APK-debug`.
+## Gerar APK
+O workflow GitHub Actions em `.github/workflows/build-apk.yml` compila o APK de depuração e publica o artefato `VisionPlay-APK-debug`.
 
-## Conexão
-Informe o endereço-base do servidor Xtream, usuário e senha. Os dados de acesso ficam apenas em memória nesta versão. Prefira HTTPS quando disponível. O aplicativo não hospeda nem inclui conteúdo: a disponibilidade depende da conta e do servidor do usuário.
-
-## Observação
-O código deve ser compilado e testado no GitHub Actions e no dispositivo antes de considerar esta versão validada.
+## Observações
+- O servidor precisa fornecer pôsteres, metadados e EPG para que esses dados sejam exibidos.
+- A posição de reprodução é salva no dispositivo e pode não funcionar para canais ao vivo.
+- Este projeto foi empacotado, mas a compilação Android precisa ser confirmada pelo workflow do GitHub Actions.

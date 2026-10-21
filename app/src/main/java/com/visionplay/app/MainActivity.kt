@@ -1,6 +1,7 @@
 package com.visionplay.app
 
 import android.graphics.Color
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -14,6 +15,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -38,6 +40,14 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import java.security.KeyStore
 import android.text.Editable
 import android.text.TextWatcher
 
@@ -53,8 +63,18 @@ private data class MediaEntry(
     val plot: String = "",
     val year: String = "",
     val director: String = "",
-    val cast: String = ""
+    val cast: String = "",
+    val posterUrl: String = "",
+    val addedAt: String = "",
+    val epgChannelId: String = "",
+    val currentProgram: String = "",
+    val currentProgramTime: String = "",
+    val currentProgramDescription: String = "",
+    val nextProgram: String = "",
+    val nextProgramTime: String = ""
 )
+
+private data class EpgProgram(val title: String, val time: String, val description: String = "")
 
 class MainActivity : AppCompatActivity() {
     private val bg = Color.rgb(5, 9, 17)
@@ -82,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedFolder: String? = null
     private var visibleLimit = 100
     private var fullScreenMode = false
+    private var detailScreenVisible = false
     private var playbackControlsVisible = true
     private var currentPlaying: MediaEntry? = null
     private var currentPlaybackQueue: List<MediaEntry> = emptyList()
@@ -103,13 +124,14 @@ class MainActivity : AppCompatActivity() {
                     } else { bar.max = 1000; bar.progress = 0 }
                 }
                 playbackTimeLabel?.text = "${formatTime(position)} / ${if (duration > 0) formatTime(duration) else "--:--"}"
+                currentPlaying?.let { savePlaybackProgress(it, position) }
                 playbackHandler.postDelayed(this, 1000)
             }
         }
     }
     @Volatile private var isLoading = false
 
-    // Credentials are kept only in memory; this prototype does not save them to disk.
+    // Saved profile password is encrypted with an Android Keystore AES key.
     private var serverBase = ""
     private var username = ""
     private var password = ""
@@ -150,8 +172,14 @@ class MainActivity : AppCompatActivity() {
         body.addView(TextView(this).apply {
             text = "Seu entretenimento, em um só lugar"
             setTextColor(muted); textSize = 15f
-            setPadding(0, dp(6), 0, dp(24))
+            setPadding(0, dp(6), 0, dp(18))
         }, matchWrap())
+        val saved = loadSavedAccount()
+        if (saved != null) {
+            body.addView(makeButton("👤  CONTINUAR COMO ${saved.second}") {
+                connectXtream(saved.first, saved.second, saved.third)
+            }, LinearLayout.LayoutParams(-1, dp(54)).apply { bottomMargin = dp(18) })
+        }
         body.addView(sectionLabel("CONECTAR AO SEU SERVIDOR"), matchWrap())
         urlInput = input("URL base ou link completo Xtream/M3U", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         userInput = input("Usuário", InputType.TYPE_CLASS_TEXT)
@@ -180,7 +208,7 @@ class MainActivity : AppCompatActivity() {
             }, matchWrap())
         }
         body.addView(TextView(this).apply {
-            text = "Por segurança, os dados de acesso não são salvos nesta versão. Prefira HTTPS quando seu servidor oferecer suporte."
+            text = "Sua conta pode ficar salva neste aparelho. A senha é protegida com criptografia local; prefira HTTPS quando disponível."
             setTextColor(muted); textSize = 12f
             setPadding(0, dp(22), 0, dp(10))
         }, matchWrap())
@@ -239,6 +267,7 @@ class MainActivity : AppCompatActivity() {
                 if (!authOk || status.equals("Disabled", true)) {
                     throw IllegalStateException("Acesso recusado. Confira usuário, senha e validade da conta.")
                 }
+                runCatching { saveAccount(normalized, user, pass) }
 
                 val loaded = mutableListOf<MediaEntry>()
                 val warnings = mutableListOf<String>()
@@ -396,6 +425,9 @@ class MainActivity : AppCompatActivity() {
                     var year = ""
                     var director = ""
                     var cast = ""
+                    var posterUrl = ""
+                    var addedAt = ""
+                    var epgChannelId = ""
                     var extension = when (type) { "live" -> "ts"; "movie" -> "mp4"; else -> "mp4" }
                     reader.beginObject()
                     while (reader.hasNext()) {
@@ -409,6 +441,9 @@ class MainActivity : AppCompatActivity() {
                             "year" -> year = reader.nextStringSafe()
                             "director" -> director = reader.nextStringSafe()
                             "cast", "actors" -> cast = reader.nextStringSafe()
+                            "stream_icon", "cover", "cover_big", "movie_image" -> posterUrl = reader.nextStringSafe().ifBlank { posterUrl }
+                            "added" -> addedAt = reader.nextStringSafe()
+                            "epg_channel_id" -> epgChannelId = reader.nextStringSafe()
                             else -> reader.skipValue()
                         }
                     }
@@ -420,7 +455,7 @@ class MainActivity : AppCompatActivity() {
                             "movie" -> streamUrl("movie", id, extension)
                             else -> "" // Episodes are fetched only when the series is opened.
                         }
-                        result.add(MediaEntry(name, url, category, section, id, extension, if (type == "series") id else "", releaseDate, plot, year, director, cast))
+                        result.add(MediaEntry(name, url, category, section, id, extension, if (type == "series") id else "", releaseDate, plot, year, director, cast, posterUrl, formatAddedDate(addedAt), epgChannelId))
                     }
                 }
                 reader.endArray()
@@ -446,6 +481,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
+        detailScreenVisible = false
         fullScreenMode = false
         playbackHandler.removeCallbacks(playbackTicker)
         playerViewSafeDetach()
@@ -522,11 +558,81 @@ class MainActivity : AppCompatActivity() {
                 marginEnd = if (section != "Séries") dp(12) else 0
             })
         }
-        root.addView(cards, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(cards, LinearLayout.LayoutParams(-1, dp(128)).apply { bottomMargin = dp(10) })
+
+        val homeScroll = ScrollView(this).apply { isFillViewport = false; clipToPadding = false }
+        val homeRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val resume = loadPlaybackEntry()
+        if (resume != null) addPosterRail(homeRows, "CONTINUAR ASSISTINDO", listOf(resume))
+        val favorites = loadFavoriteEntries()
+        if (favorites.isNotEmpty()) addPosterRail(homeRows, "MEUS FAVORITOS", favorites)
+        val recent = entries.filter { it.section == "Filmes" || it.section == "Séries" }
+            .sortedByDescending { it.addedAt }.take(20)
+        if (recent.isNotEmpty()) addPosterRail(homeRows, "ADICIONADOS RECENTEMENTE", recent)
+        homeScroll.addView(homeRows)
+        root.addView(homeScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
 
+    private fun addPosterRail(parent: LinearLayout, title: String, items: List<MediaEntry>) {
+        parent.addView(TextView(this).apply {
+            text = title; setTextColor(white); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .06f; setPadding(dp(2), dp(8), 0, dp(8))
+        }, matchWrap())
+        val horizontal = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        items.take(18).forEach { item ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(5), dp(5), dp(5), dp(5)); setBackgroundColor(panel)
+                val poster = ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2)
+                }
+                addView(poster, LinearLayout.LayoutParams(dp(104), dp(132)))
+                if (item.posterUrl.isNotBlank()) loadPoster(item.posterUrl, poster)
+                addView(TextView(this@MainActivity).apply {
+                    text = item.name; setTextColor(white); textSize = 10f; maxLines = 2
+                    setPadding(0, dp(5), 0, 0)
+                }, LinearLayout.LayoutParams(dp(104), -2))
+                setOnClickListener { openContentDetails(item) }
+            }
+            horizontal.addView(card, LinearLayout.LayoutParams(dp(114), -2).apply { marginEnd = dp(7) })
+        }
+        val horizontalScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; addView(horizontal)
+        }
+        parent.addView(horizontalScroll, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+    }
+
+    private fun favoriteKey(item: MediaEntry): String = "${item.section}|${item.itemId.ifBlank { item.name }}|${item.name}"
+
+    private fun toggleFavorite(item: MediaEntry) {
+        val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        val saved = prefs.getStringSet("favorites", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val key = favoriteKey(item)
+        if (!saved.add(key)) { saved.remove(key); toast("Removido dos favoritos") } else toast("Adicionado aos favoritos")
+        prefs.edit().putStringSet("favorites", saved).apply()
+    }
+
+    private fun isFavorite(item: MediaEntry): Boolean = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        .getStringSet("favorites", emptySet())?.contains(favoriteKey(item)) == true
+
+    private fun loadFavoriteEntries(): List<MediaEntry> {
+        val saved = getSharedPreferences("visionplay_library", MODE_PRIVATE).getStringSet("favorites", emptySet()) ?: emptySet()
+        return entries.filter { favoriteKey(it) in saved }
+    }
+
+    private fun savePlaybackProgress(item: MediaEntry, position: Long) {
+        getSharedPreferences("visionplay_library", MODE_PRIVATE).edit()
+            .putString("resume_key", favoriteKey(item)).putLong("resume_position", position).apply()
+    }
+
+    private fun loadPlaybackEntry(): MediaEntry? {
+        val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        val key = prefs.getString("resume_key", null) ?: return null
+        return entries.firstOrNull { favoriteKey(it) == key && it.url.isNotBlank() }
+    }
+
     private fun showCatalog() {
+        detailScreenVisible = false
         fullScreenMode = false
         playbackHandler.removeCallbacks(playbackTicker)
         playerViewSafeDetach()
@@ -743,9 +849,196 @@ class MainActivity : AppCompatActivity() {
             }, matchWrap())
         }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(makeSmallButton(if (item.section == "Séries") "EPISÓDIOS" else "ASSISTIR") {
-            if (item.section == "Séries") loadSeriesEpisodes(item) else play(item)
+            openContentDetails(item)
         })
-        setOnClickListener { if (item.section == "Séries") loadSeriesEpisodes(item) else play(item) }
+        setOnClickListener { openContentDetails(item) }
+    }
+
+    private fun openContentDetails(item: MediaEntry) {
+        if (isLoading) return
+        isLoading = true
+        showLoading(when (item.section) {
+            "Filmes" -> "Carregando detalhes do filme..."
+            "Séries" -> "Carregando detalhes da série..."
+            else -> "Consultando programação do canal..."
+        })
+        io.execute {
+            try {
+                var enriched = item
+                when (item.section) {
+                    "Filmes" -> {
+                        val obj = runCatching { fetchJsonObject(apiUrl("get_vod_info", "vod_id", item.itemId)) }.getOrNull()
+                        if (obj != null) {
+                        val info = obj.getAsJsonObject("info") ?: JsonObject()
+                        val data = obj.getAsJsonObject("movie_data") ?: JsonObject()
+                        enriched = item.copy(
+                            plot = firstNonBlank(info, "plot", "description").ifBlank { item.plot },
+                            releaseDate = firstNonBlank(info, "release_date", "releaseDate", "releasedate").ifBlank { item.releaseDate },
+                            year = firstNonBlank(info, "year").ifBlank { item.year },
+                            director = firstNonBlank(info, "director").ifBlank { item.director },
+                            cast = firstNonBlank(info, "cast", "actors").ifBlank { item.cast },
+                            posterUrl = firstNonBlank(info, "movie_image", "cover_big", "cover").ifBlank { item.posterUrl },
+                            addedAt = firstNonBlank(data, "added").let { formatAddedDate(it) }.ifBlank { item.addedAt },
+                            group = firstNonBlank(info, "genre").ifBlank { item.group }
+                        )
+                        }
+                    }
+                    "Séries" -> {
+                        val obj = runCatching { fetchJsonObject(apiUrl("get_series_info", "series_id", item.seriesId)) }.getOrNull()
+                        if (obj != null) {
+                        val info = obj.getAsJsonObject("info") ?: JsonObject()
+                        enriched = item.copy(
+                            plot = firstNonBlank(info, "plot", "description").ifBlank { item.plot },
+                            releaseDate = firstNonBlank(info, "releaseDate", "release_date", "releasedate").ifBlank { item.releaseDate },
+                            year = firstNonBlank(info, "year").ifBlank { item.year },
+                            director = firstNonBlank(info, "director").ifBlank { item.director },
+                            cast = firstNonBlank(info, "cast", "actors").ifBlank { item.cast },
+                            posterUrl = firstNonBlank(info, "cover", "cover_big", "movie_image").ifBlank { item.posterUrl },
+                            group = firstNonBlank(info, "genre").ifBlank { item.group }
+                        )
+                        }
+                    }
+                    "Canais ao vivo" -> {
+                        val obj = runCatching { fetchJsonObject(apiUrl("get_short_epg", "stream_id", item.itemId)) }.getOrNull()
+                        val epg = obj?.getAsJsonArray("epg_list")
+                        val programs = mutableListOf<EpgProgram>()
+                        if (epg != null) for (row in epg) {
+                            if (!row.isJsonObject) continue
+                            val e = row.asJsonObject
+                            val title = firstNonBlank(e, "title", "name")
+                            if (title.isBlank()) continue
+                            val start = firstNonBlank(e, "start", "start_time", "start_timestamp")
+                            val end = firstNonBlank(e, "end", "end_time", "stop_timestamp")
+                            val time = listOf(start, end).filter { it.isNotBlank() }.joinToString(" – ")
+                            programs.add(EpgProgram(title, time, firstNonBlank(e, "description", "plot")))
+                        }
+                        val now = programs.getOrNull(0)
+                        val next = programs.getOrNull(1)
+                        enriched = item.copy(
+                            currentProgram = now?.title.orEmpty(),
+                            currentProgramTime = now?.time.orEmpty(),
+                            currentProgramDescription = now?.description.orEmpty(),
+                            nextProgram = next?.title.orEmpty(),
+                            nextProgramTime = next?.time.orEmpty()
+                        )
+                    }
+                }
+                val finalItem = enriched
+                runOnUiThread {
+                    isLoading = false
+                    if (!isFinishing) showContentDetails(finalItem)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    isLoading = false
+                    showCatalog()
+                    toast("Não foi possível carregar os detalhes: ${safeError(e)}")
+                }
+            }
+        }
+    }
+
+    private fun firstNonBlank(obj: JsonObject, vararg keys: String): String {
+        for (key in keys) {
+            val value = obj.get(key) ?: continue
+            if (!value.isJsonNull) {
+                val text = runCatching { value.asString }.getOrDefault("").trim()
+                if (text.isNotBlank() && text != "null") return text
+            }
+        }
+        return ""
+    }
+
+    private fun formatAddedDate(value: String): String {
+        val raw = value.trim()
+        if (raw.isBlank() || raw == "0") return ""
+        val epoch = raw.toLongOrNull()
+        if (epoch != null && raw.length >= 9) {
+            return runCatching {
+                java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date(if (epoch > 9999999999L) epoch else epoch * 1000L))
+            }.getOrDefault(raw)
+        }
+        return raw
+    }
+
+    private fun showContentDetails(item: MediaEntry) {
+        detailScreenVisible = true
+        fullScreenMode = false
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        root = baseScreen().apply { setPadding(dp(18), dp(10), dp(18), dp(12)) }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(makeSmallButton("‹  VOLTAR") { detailScreenVisible = false; showCatalog() })
+        header.addView(TextView(this).apply {
+            text = when (item.section) { "Canais ao vivo" -> "DETALHES DO CANAL"; "Filmes" -> "DETALHES DO FILME"; else -> "DETALHES DA SÉRIE" }
+            setTextColor(white); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setPadding(dp(12), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        root.addView(header, matchWrap())
+        val scroll = ScrollView(this)
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
+        val hero = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP; setPadding(dp(12), dp(12), dp(12), dp(12)); setBackgroundColor(panel) }
+        if (item.posterUrl.isNotBlank()) {
+            val image = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2) }
+            hero.addView(image, LinearLayout.LayoutParams(dp(128), dp(184)).apply { marginEnd = dp(14) })
+            loadPoster(item.posterUrl, image)
+        } else {
+            hero.addView(TextView(this).apply { text = if (item.section == "Canais ao vivo") "●" else "▶"; textSize = 42f; gravity = Gravity.CENTER; setTextColor(cyan); setBackgroundColor(panel2) }, LinearLayout.LayoutParams(dp(84), dp(110)).apply { marginEnd = dp(14) })
+        }
+        val facts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        facts.addView(TextView(this@MainActivity).apply { text = item.name; setTextColor(white); textSize = 21f; typeface = Typeface.DEFAULT_BOLD }, matchWrap())
+        val meta = listOfNotNull(
+            item.year.takeIf { it.isNotBlank() }?.let { "Ano: $it" },
+            item.releaseDate.takeIf { it.isNotBlank() }?.let { "Lançamento: $it" },
+            item.addedAt.takeIf { it.isNotBlank() }?.let { "Adicionado: $it" },
+            item.group.takeIf { it.isNotBlank() }?.let { "Categoria: $it" },
+            item.director.takeIf { it.isNotBlank() }?.let { "Direção: $it" },
+            item.cast.takeIf { it.isNotBlank() }?.let { "Elenco: $it" }
+        ).joinToString("\n")
+        if (meta.isNotBlank()) facts.addView(TextView(this@MainActivity).apply { text = meta; setTextColor(muted); textSize = 12f; setPadding(0, dp(9), 0, 0) }, matchWrap())
+        hero.addView(facts, LinearLayout.LayoutParams(0, -2, 1f))
+        body.addView(hero, matchWrap())
+        if (item.section == "Canais ao vivo") {
+            body.addView(sectionLabel("●  NO AR / PROGRAMAÇÃO"), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            body.addView(TextView(this).apply {
+                text = if (item.currentProgram.isNotBlank()) "AGORA: ${item.currentProgram}" + item.currentProgramTime.takeIf { it.isNotBlank() }?.let { "  •  $it" }.orEmpty() else "A programação atual não foi disponibilizada pelo servidor."
+                setTextColor(white); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setPadding(dp(12), dp(12), dp(12), dp(8)); setBackgroundColor(panel)
+            }, matchWrap())
+            if (item.currentProgramDescription.isNotBlank()) body.addView(TextView(this).apply { text = item.currentProgramDescription; setTextColor(muted); textSize = 13f; setPadding(dp(12), dp(4), dp(12), dp(12)); setBackgroundColor(panel) }, matchWrap())
+            if (item.nextProgram.isNotBlank()) body.addView(TextView(this).apply { text = "A SEGUIR: ${item.nextProgram}" + item.nextProgramTime.takeIf { it.isNotBlank() }?.let { "  •  $it" }.orEmpty(); setTextColor(cyan); textSize = 13f; setPadding(dp(12), dp(10), dp(12), dp(10)) }, matchWrap())
+        } else {
+            body.addView(sectionLabel("SINOPSE"), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            body.addView(TextView(this).apply {
+                text = item.plot.ifBlank { "O servidor não forneceu sinopse para este título." }
+                setTextColor(if (item.plot.isBlank()) muted else white); textSize = 14f; setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(dp(14), dp(12), dp(14), dp(12)); setBackgroundColor(panel)
+            }, matchWrap())
+        }
+        body.addView(makeSmallButton(if (isFavorite(item)) "♥  REMOVER DOS FAVORITOS" else "♡  ADICIONAR AOS FAVORITOS") {
+            toggleFavorite(item)
+            showContentDetails(item)
+        }, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(12) })
+        val actionLabel = when (item.section) { "Canais ao vivo" -> "▶  ASSISTIR CANAL"; "Filmes" -> "▶  ASSISTIR FILME"; else -> "▤  VER TEMPORADAS E EPISÓDIOS" }
+        body.addView(makeButton(actionLabel) {
+            detailScreenVisible = false
+            if (item.section == "Séries") loadSeriesEpisodes(item) else play(item)
+        }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(18) })
+        body.addView(makeSmallButton("VOLTAR AO CATÁLOGO") { detailScreenVisible = false; showCatalog() }, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(8) })
+        scroll.addView(body)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+    }
+
+    private fun loadPoster(url: String, target: ImageView) {
+        io.execute {
+            try {
+                val connection = openConnection(url)
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                val bitmap = connection.inputStream.use { BitmapFactory.decodeStream(it) }
+                connection.disconnect()
+                if (bitmap != null) runOnUiThread { if (!isFinishing) target.setImageBitmap(bitmap) }
+            } catch (_: Exception) { }
+        }
     }
 
     private fun loadSeriesEpisodes(series: MediaEntry) {
@@ -814,7 +1107,13 @@ class MainActivity : AppCompatActivity() {
             val currentPlayer = player ?: run { initializePlayer(); player ?: throw IllegalStateException("Player indisponível") }
             currentPlayer.stop(); currentPlayer.clearMediaItems()
             currentPlayer.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.url)).build())
-            currentPlayer.prepare(); currentPlayer.playWhenReady = true
+            val savedPrefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+            val resumeKey = savedPrefs.getString("resume_key", null)
+            val savedPosition = if (resumeKey == favoriteKey(item)) savedPrefs.getLong("resume_position", 0L) else 0L
+            currentPlayer.prepare()
+            if (savedPosition > 5000L) currentPlayer.seekTo(savedPosition)
+            currentPlayer.playWhenReady = true
+            savePlaybackProgress(item, savedPosition)
             showPlaybackScreen()
         } catch (e: Exception) { toast("Não foi possível abrir este conteúdo: ${e.message.orEmpty().take(100)}") }
     }
@@ -850,7 +1149,8 @@ class MainActivity : AppCompatActivity() {
             item?.releaseDate?.takeIf { it.isNotBlank() }?.let { "Data: $it" },
             item?.year?.takeIf { it.isNotBlank() }?.let { "Ano: $it" },
             item?.director?.takeIf { it.isNotBlank() }?.let { "Direção: $it" },
-            item?.cast?.takeIf { it.isNotBlank() }?.let { "Elenco: $it" }
+            item?.cast?.takeIf { it.isNotBlank() }?.let { "Elenco: $it" },
+            item?.currentProgram?.takeIf { it.isNotBlank() }?.let { "No ar: $it ${item.currentProgramTime}" }
         ).joinToString("  •  ")
         if (meta.isNotBlank()) overlay.addView(TextView(this).apply {
             text = meta; textSize = 11f; setTextColor(muted); setPadding(0, dp(4), 0, dp(2)); maxLines = 2
@@ -922,6 +1222,46 @@ class MainActivity : AppCompatActivity() {
         val seconds = total % 60
         return if (hours > 0) String.format(java.util.Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
             else String.format(java.util.Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+
+    private fun saveAccount(server: String, user: String, pass: String) {
+        val alias = "visionplay_saved_account_key"
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        var key = store.getKey(alias, null) as? SecretKey
+        if (key == null) {
+            val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            generator.init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build())
+            key = generator.generateKey()
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val encrypted = cipher.doFinal(pass.toByteArray(Charsets.UTF_8))
+        getSharedPreferences("visionplay_account", MODE_PRIVATE).edit()
+            .putString("server", server)
+            .putString("username", user)
+            .putString("password_enc", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .putString("password_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .apply()
+    }
+
+    private fun loadSavedAccount(): Triple<String, String, String>? {
+        return try {
+            val prefs = getSharedPreferences("visionplay_account", MODE_PRIVATE)
+            val server = prefs.getString("server", null) ?: return null
+            val user = prefs.getString("username", null) ?: return null
+            val encryptedText = prefs.getString("password_enc", null) ?: return null
+            val ivText = prefs.getString("password_iv", null) ?: return null
+            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val key = store.getKey("visionplay_saved_account_key", null) as? SecretKey ?: return null
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, Base64.decode(ivText, Base64.NO_WRAP)))
+            val pass = String(cipher.doFinal(Base64.decode(encryptedText, Base64.NO_WRAP)), Charsets.UTF_8)
+            if (pass.isBlank()) null else Triple(server, user, pass)
+        } catch (_: Exception) { null }
     }
 
     private fun loadM3uFile(uri: Uri) {
@@ -1021,6 +1361,7 @@ class MainActivity : AppCompatActivity() {
     override fun onBackPressed() {
         when {
             fullScreenMode -> { fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
+            detailScreenVisible -> { detailScreenVisible = false; showCatalog() }
             activeSection != "INICIO" && entries.isNotEmpty() -> { selectedFolder = null; searchQuery = ""; showHome() }
             else -> super.onBackPressed()
         }
