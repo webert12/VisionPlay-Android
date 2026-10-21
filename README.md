@@ -1,13 +1,15 @@
-# VisionPlay Android
+# Vision Play TV — Xtream API prototype
 
-Projeto inicial Android nativo para importar listas M3U/M3U8 e reproduzir fluxos compatíveis usando AndroidX Media3.
+Android app prototype using Kotlin, AndroidX Media3 and Xtream Codes-compatible `player_api.php`.
 
-## Compilar APK
-O GitHub Actions compila automaticamente quando há push na branch `main`. Abra **Actions**, selecione **Build VisionPlay APK** e baixe o artefato `VisionPlay-APK-debug` após a execução terminar.
+## Connect
+Enter the server base URL, username and password. The app checks `player_api.php`, then requests live categories/streams, VOD categories/streams, and series categories/series independently.
 
-## Observações
-- Este é um protótipo inicial: importa listas por URL HTTP/HTTPS ou arquivo local e reproduz os endereços de mídia encontrados.
-- M3U é um formato de lista; M3U8 pode representar playlists HLS. Nem toda URL M3U8 é uma lista de canais.
-- Compatibilidade depende do codec, protocolo, servidor, autenticação e disponibilidade da fonte.
-- Use apenas listas e transmissões que você tenha autorização para acessar e distribuir.
-- A compilação atual gera um APK debug para testes, não uma versão assinada para publicação na Play Store.
+## Notes
+- Credentials are kept in memory only in this prototype; they are not saved to disk or printed to logs.
+- Prefer HTTPS. HTTP sends credentials and stream URLs without transport encryption.
+- Catalogs are parsed as streaming JSON, with a cap of 3,000 items per section to reduce memory pressure.
+- Series episodes are requested separately with `get_series_info` when a series is selected.
+- The API and stream URL conventions vary between providers. If the provider uses a custom API or path, the implementation may need adjustment.
+- Only use services and streams you are authorized to access.
+- GitHub Actions builds a debug APK for testing; this is not a Play Store release build.
