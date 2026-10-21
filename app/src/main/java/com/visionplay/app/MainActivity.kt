@@ -406,63 +406,123 @@ class MainActivity : AppCompatActivity() {
     private fun showHome() {
         if (::playerView.isInitialized) playerView.player = null
         root = baseScreen()
+        root.setPadding(if (fullScreenMode) 0 else dp(10), if (fullScreenMode) 0 else dp(8), if (fullScreenMode) 0 else dp(10), if (fullScreenMode) 0 else dp(8))
+
         if (fullScreenMode) {
-            root.setPadding(0, 0, 0, 0)
-            val frame = FrameLayout(this)
+            val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
             playerView = PlayerView(this).apply {
                 useController = true
                 setBackgroundColor(Color.BLACK)
                 player = this@MainActivity.player
             }
-            frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
-            val back = makeSmallButton("✕  VOLTAR") {
+            playerView.setOnClickListener {
                 fullScreenMode = false
                 window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
                 window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                showHome()
+            }
+            frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+            val back = makeSmallButton("✕  VOLTAR À LISTA") {
+                fullScreenMode = false
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
                 showHome()
             }
             frame.addView(back, FrameLayout.LayoutParams(-2, dp(44), Gravity.TOP or Gravity.END).apply {
-                topMargin = dp(14); marginEnd = dp(14)
+                topMargin = dp(12); marginEnd = dp(12)
             })
             root.addView(frame, LinearLayout.LayoutParams(-1, -1))
             setContentView(root)
             return
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), dp(8))
+        }
         header.addView(TextView(this).apply {
-            text = "VISION PLAY"; textSize = 23f; setTextColor(blue)
-            typeface = Typeface.DEFAULT_BOLD; letterSpacing = .04f
+            text = "VISION PLAY"
+            textSize = 22f
+            setTextColor(blue)
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .04f
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(makeSmallButton("⛶ TELA CHEIA") {
-            fullScreenMode = true
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
-            showHome()
-        })
+        header.addView(TextView(this).apply {
+            text = "SEU STREAMING EM UM SÓ LUGAR"
+            textSize = 10f
+            setTextColor(muted)
+            letterSpacing = .08f
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(makeSmallButton("CONTA") { stopPlayback(); selectedFolder = null; showLogin() })
         root.addView(header, matchWrap())
-        root.addView(TextView(this).apply {
-            text = "FILMES, SÉRIES E TV AO VIVO"; setTextColor(muted); textSize = 11f
-            letterSpacing = .09f; setPadding(0, dp(4), 0, dp(12))
-        }, matchWrap())
 
+        // Landscape streaming layout: player on the left, browsing panel on the right.
+        val workspace = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.FILL
+            setBackgroundColor(bg)
+        }
+
+        val playerPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, dp(8), 0)
+            setBackgroundColor(bg)
+        }
+        val playerFrame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         playerView = PlayerView(this).apply {
             useController = true
             setBackgroundColor(Color.BLACK)
             player = this@MainActivity.player
         }
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        root.addView(playerView, LinearLayout.LayoutParams(-1, if (landscape) dp(150) else dp(205)).apply { bottomMargin = dp(10) })
-
-        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Canais ao vivo", "Filmes", "Séries").forEach { label ->
-            tabs.addView(makeSmallButton(label) {
-                activeSection = label; selectedFolder = null; visibleLimit = 100; showSection(label)
-            }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(5) })
+        playerView.setOnClickListener {
+            fullScreenMode = true
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+            showHome()
         }
-        root.addView(tabs, matchWrap())
+        playerFrame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+        playerFrame.addView(makeSmallButton("⛶") {
+            fullScreenMode = true
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+            showHome()
+        }, FrameLayout.LayoutParams(dp(54), dp(42), Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = dp(10); marginEnd = dp(10)
+        })
+        playerPanel.addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
+        playerPanel.addView(TextView(this).apply {
+            text = "TOQUE NO VÍDEO PARA AMPLIAR"
+            textSize = 10f
+            setTextColor(muted)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(7), 0, 0)
+        }, LinearLayout.LayoutParams(-1, dp(24)))
+        workspace.addView(playerPanel, LinearLayout.LayoutParams(0, -1, 1.05f))
+
+        val catalogPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), 0, 0, 0)
+            setBackgroundColor(bg)
+        }
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        listOf("Canais ao vivo", "Filmes", "Séries").forEach { label ->
+            tabs.addView(makeSmallButton(when (label) { "Canais ao vivo" -> "TV AO VIVO"; else -> label.uppercase() }) {
+                activeSection = label
+                selectedFolder = null
+                visibleLimit = 100
+                showSection(label)
+            }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
+        }
+        catalogPanel.addView(tabs, matchWrap())
+
         searchInput = input("Buscar canais, filmes ou séries...", InputType.TYPE_CLASS_TEXT).apply {
             setText(searchQuery)
             addTextChangedListener(object : TextWatcher {
@@ -476,11 +536,19 @@ class MainActivity : AppCompatActivity() {
                 override fun afterTextChanged(s: Editable?) {}
             })
         }
-        root.addView(searchInput, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8); bottomMargin = dp(6) })
+        catalogPanel.addView(searchInput, LinearLayout.LayoutParams(-1, dp(44)).apply {
+            topMargin = dp(7); bottomMargin = dp(6)
+        })
         contentBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { isFillViewport = true }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, dp(3), 0)
+        }
         scroll.addView(contentBox)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        catalogPanel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        workspace.addView(catalogPanel, LinearLayout.LayoutParams(0, -1, 1f))
+        root.addView(workspace, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         showSection(activeSection)
     }
