@@ -1,0 +1,17 @@
+VISION PLAY TV PREMIUM — VERSÃO 1.7.0 (v11)
+
+Melhorias incluídas:
+- Histórico recente persistente de canais, filmes e episódios/séries.
+- Retomada individual por conteúdo, salvando posição e duração por item, em vez de apenas o último vídeo global.
+- Salvamento periódico durante a reprodução e ao sair/fechar a Activity.
+- Seção Continuar Assistindo com barra de progresso para filmes e episódios.
+- Fileiras separadas de canais vistos recentemente, filmes vistos recentemente e séries/episódios recentes.
+- Histórico salva metadados, não URLs de streaming com credenciais; links são reconstruídos após autenticação.
+- Cartões e pastas aproveitam logos/capas enviados pelo provedor quando disponíveis.
+- Episódios usam a imagem e a sinopse próprias se o servidor as fornecer; caso contrário, usam a capa/sinopse da série.
+- Número da versão atualizado para 1.7.0 / versionCode 8.
+
+Observações:
+- A imagem/logo real depende de o servidor Xtream disponibilizar stream_icon/movie_image/cover.
+- A retomada precisa de um fluxo seekable (filmes e episódios). Canais ao vivo entram no histórico, mas não têm posição de retomada como um vídeo sob demanda.
+- O APK precisa ser compilado e testado no GitHub Actions e no aparelho antes de considerar a versão validada.

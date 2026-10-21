@@ -565,13 +565,20 @@ class MainActivity : AppCompatActivity() {
 
         val homeScroll = ScrollView(this).apply { isFillViewport = false; clipToPadding = false }
         val homeRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val resume = loadPlaybackEntry()
-        if (resume != null) addPosterRail(homeRows, "CONTINUAR ASSISTINDO", listOf(resume))
+        val continueWatching = loadContinueWatchingEntries()
+        if (continueWatching.isNotEmpty()) addPosterRail(homeRows, "CONTINUAR ASSISTINDO", continueWatching)
+        val recent = loadRecentEntries()
+        val recentChannels = recent.filter { it.section == "Canais ao vivo" }
+        val recentMovies = recent.filter { it.section == "Filmes" }
+        val recentSeries = recent.filter { it.section == "Séries" || it.section == "Episódios" }
+        if (recentChannels.isNotEmpty()) addPosterRail(homeRows, "CANAIS VISTOS RECENTEMENTE", recentChannels)
+        if (recentMovies.isNotEmpty()) addPosterRail(homeRows, "FILMES VISTOS RECENTEMENTE", recentMovies)
+        if (recentSeries.isNotEmpty()) addPosterRail(homeRows, "SÉRIES E EPISÓDIOS RECENTES", recentSeries)
         val favorites = loadFavoriteEntries()
         if (favorites.isNotEmpty()) addPosterRail(homeRows, "MEUS FAVORITOS", favorites)
-        val recent = entries.filter { it.section == "Filmes" || it.section == "Séries" }
-            .sortedByDescending { it.addedAt }.take(20)
-        if (recent.isNotEmpty()) addPosterRail(homeRows, "ADICIONADOS RECENTEMENTE", recent)
+        val newReleases = entries.filter { it.section == "Filmes" || it.section == "Séries" }
+            .sortedWith(compareBy<MediaEntry> { if (it.addedAt.isBlank()) 1 else 0 }.thenByDescending { it.addedAt }).take(30)
+        if (newReleases.isNotEmpty()) addPosterRail(homeRows, "ADICIONADOS RECENTEMENTE", newReleases)
         homeScroll.addView(homeRows)
         root.addView(homeScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -583,21 +590,47 @@ class MainActivity : AppCompatActivity() {
             letterSpacing = .06f; setPadding(dp(2), dp(8), 0, dp(8))
         }, matchWrap())
         val horizontal = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        items.take(18).forEach { item ->
+        items.distinctBy { favoriteKey(it) }.take(24).forEach { item ->
             val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(5), dp(5), dp(5), dp(5)); setBackgroundColor(panel)
+                orientation = LinearLayout.VERTICAL; setPadding(dp(5), dp(5), dp(5), dp(5))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(panel); cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.rgb(31, 57, 86))
+                }
                 val poster = ImageView(this@MainActivity).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2)
                 }
-                addView(poster, LinearLayout.LayoutParams(dp(104), dp(132)))
-                if (item.posterUrl.isNotBlank()) loadPoster(item.posterUrl, poster)
+                addView(poster, LinearLayout.LayoutParams(dp(116), dp(142)))
+                if (item.posterUrl.isNotBlank()) loadPoster(item.posterUrl, poster) else {
+                    poster.setImageResource(when (item.section) {
+                        "Canais ao vivo" -> android.R.drawable.ic_media_play
+                        "Filmes" -> android.R.drawable.ic_menu_gallery
+                        else -> android.R.drawable.ic_menu_slideshow
+                    })
+                    poster.scaleType = ImageView.ScaleType.CENTER
+                }
                 addView(TextView(this@MainActivity).apply {
                     text = item.name; setTextColor(white); textSize = 10f; maxLines = 2
                     setPadding(0, dp(5), 0, 0)
-                }, LinearLayout.LayoutParams(dp(104), -2))
-                setOnClickListener { openContentDetails(item) }
+                }, LinearLayout.LayoutParams(dp(116), dp(34)))
+                val pos = getPlaybackPosition(item)
+                val duration = getPlaybackDuration(item)
+                if (duration > 0 && pos > 0 && (item.section == "Filmes" || item.section == "Episódios")) {
+                    val progressBar = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 1000; progress = ((pos.toDouble() / duration) * 1000).toInt().coerceIn(0, 1000)
+                        progressTintList = android.content.res.ColorStateList.valueOf(cyan)
+                        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(panel2)
+                    }
+                    addView(progressBar, LinearLayout.LayoutParams(dp(116), dp(3)).apply { topMargin = dp(3) })
+                }
+                setOnClickListener {
+                    when (item.section) {
+                        "Episódios", "Canais ao vivo", "Filmes" -> if (title == "CONTINUAR ASSISTINDO" || item.section == "Episódios") play(item) else openContentDetails(item)
+                        else -> openContentDetails(item)
+                    }
+                }
+                isFocusable = true
             }
-            horizontal.addView(card, LinearLayout.LayoutParams(dp(114), -2).apply { marginEnd = dp(7) })
+            horizontal.addView(card, LinearLayout.LayoutParams(dp(126), -2).apply { marginEnd = dp(8) })
         }
         val horizontalScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; addView(horizontal)
@@ -623,16 +656,67 @@ class MainActivity : AppCompatActivity() {
         return entries.filter { favoriteKey(it) in saved }
     }
 
-    private fun savePlaybackProgress(item: MediaEntry, position: Long) {
-        getSharedPreferences("visionplay_library", MODE_PRIVATE).edit()
-            .putString("resume_key", favoriteKey(item)).putLong("resume_position", position).apply()
+    private fun historyToken(item: MediaEntry): String = Base64.encodeToString(
+        favoriteKey(item).toByteArray(StandardCharsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+    )
+
+    private fun saveRecentEntry(item: MediaEntry) {
+        val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        val token = historyToken(item)
+        val old = prefs.getString("recent_history", "").orEmpty().split("\n").filter { it.isNotBlank() && it != token }
+        val history = (listOf(token) + old).take(120)
+        // Do not persist stream URLs: they contain account credentials. Rebuild them after login.
+        val safeItem = item.copy(url = "")
+        prefs.edit()
+            .putString("history_item_$token", com.google.gson.Gson().toJson(safeItem))
+            .putString("recent_history", history.joinToString("\n"))
+            .apply()
     }
 
-    private fun loadPlaybackEntry(): MediaEntry? {
+    private fun savePlaybackProgress(item: MediaEntry, position: Long, duration: Long = player?.duration ?: 0L) {
         val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
-        val key = prefs.getString("resume_key", null) ?: return null
-        return entries.firstOrNull { favoriteKey(it) == key && it.url.isNotBlank() }
+        val token = historyToken(item)
+        prefs.edit()
+            .putString("resume_key", favoriteKey(item)) // backwards compatibility with earlier versions
+            .putLong("resume_position", position)
+            .putLong("progress_$token", position.coerceAtLeast(0L))
+            .putLong("duration_$token", duration.coerceAtLeast(0L))
+            .apply()
     }
+
+    private fun getPlaybackPosition(item: MediaEntry): Long {
+        val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        val token = historyToken(item)
+        if (prefs.contains("progress_$token")) return prefs.getLong("progress_$token", 0L)
+        return if (prefs.getString("resume_key", null) == favoriteKey(item)) prefs.getLong("resume_position", 0L) else 0L
+    }
+
+    private fun getPlaybackDuration(item: MediaEntry): Long = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        .getLong("duration_${historyToken(item)}", 0L)
+
+    private fun loadRecentEntries(): List<MediaEntry> {
+        val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
+        val tokens = prefs.getString("recent_history", "").orEmpty().split("\n").filter { it.isNotBlank() }
+        return tokens.mapNotNull { token ->
+            val stored = runCatching {
+                com.google.gson.Gson().fromJson(prefs.getString("history_item_$token", null), MediaEntry::class.java)
+            }.getOrNull() ?: return@mapNotNull null
+            val catalogMatch = entries.firstOrNull { favoriteKey(it) == favoriteKey(stored) }
+            val item = catalogMatch ?: stored
+            when (item.section) {
+                "Canais ao vivo" -> item.copy(url = streamUrl("live", item.itemId, "ts"))
+                "Filmes" -> item.copy(url = streamUrl("movie", item.itemId, item.extension.ifBlank { "mp4" }))
+                "Episódios" -> item.copy(url = streamUrl("series", item.itemId, item.extension.ifBlank { "mp4" }))
+                else -> item
+            }
+        }
+    }
+
+    private fun loadContinueWatchingEntries(): List<MediaEntry> = loadRecentEntries().filter { item ->
+        (item.section == "Filmes" || item.section == "Episódios") && getPlaybackPosition(item) > 5000L && item.url.isNotBlank()
+    }
+
+    private fun loadPlaybackEntry(): MediaEntry? = loadContinueWatchingEntries().firstOrNull()
 
     private fun showCatalog() {
         detailScreenVisible = false
@@ -764,9 +848,9 @@ class MainActivity : AppCompatActivity() {
                 else a.key.compareTo(b.key, ignoreCase = true)
             })
             folders.forEach { folderEntry ->
-                contentBox.addView(makeFolderRow(folderEntry.key, folderEntry.value.size) {
+                contentBox.addView(makeFolderRow(folderEntry.key, folderEntry.value.size, {
                     selectedFolder = folderEntry.key; visibleLimit = 100; showSection(section)
-                }, LinearLayout.LayoutParams(-1, dp(64)).apply { bottomMargin = dp(6) })
+                }, folderEntry.value.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl.orEmpty()), LinearLayout.LayoutParams(-1, dp(64)).apply { bottomMargin = dp(6) })
             }
             return
         }
@@ -869,29 +953,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun makeFolderRow(name: String, count: Int, action: () -> Unit): View = LinearLayout(this).apply {
+    private fun makeFolderRow(name: String, count: Int, action: () -> Unit, iconUrl: String = ""): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(14), dp(8), dp(12), dp(8)); setBackgroundColor(panel)
-        val symbol = TextView(this@MainActivity).apply {
-            text = when {
-                name.contains("Netflix", true) -> "N"
-                name.contains("HBO", true) || name.contains("Max", true) -> "HBO"
-                name.contains("Prime", true) || name.contains("Amazon", true) -> "prime"
-                name.contains("GloboPlay", true) || name.contains("Globoplay", true) -> "G"
-                name.contains("Disney", true) -> "D+"
-                name.contains("Paramount", true) -> "P+"
-                name.contains("Apple TV", true) -> "tv+"
-                name.contains("Crunchyroll", true) -> "CR"
-                name.contains("Globo", true) -> "G"
-                name.contains("SBT", true) -> "SBT"
-                name.contains("Record", true) -> "R"
-                name.contains("Band", true) -> "BAND"
-                name.contains("Carregar mais", true) -> "+"
-                else -> "▶"
-            }
-            textSize = if (text.length > 2) 12f else 22f; setTextColor(cyan); gravity = Gravity.CENTER
-            typeface = Typeface.DEFAULT_BOLD
+        val symbol = ImageView(this@MainActivity).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
             background = android.graphics.drawable.GradientDrawable().apply { setColor(panel2); cornerRadius = dp(8).toFloat() }
+            if (iconUrl.isNotBlank()) loadPoster(iconUrl, this)
+            else setImageResource(when {
+                name.contains("Carregar mais", true) -> android.R.drawable.ic_input_add
+                name.contains("Netflix", true) || name.contains("HBO", true) || name.contains("Max", true) -> android.R.drawable.ic_media_play
+                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> android.R.drawable.ic_menu_tv
+                else -> android.R.drawable.ic_menu_gallery
+            })
         }
         addView(symbol, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
         addView(LinearLayout(this@MainActivity).apply {
@@ -1147,10 +1221,16 @@ class MainActivity : AppCompatActivity() {
                         val id = ep.stringValue("id")
                         val title = ep.stringValue("title").ifBlank { "Temporada $season • Episódio ${episodes.size + 1}" }
                         val ext = ep.stringValue("container_extension").ifBlank { "mp4" }
+                        val epInfo = ep.getAsJsonObject("info")
+                        val epPoster = firstNonBlank(ep, "movie_image", "cover_big", "cover", "stream_icon")
+                            .ifBlank { firstNonBlank(epInfo ?: JsonObject(), "movie_image", "cover_big", "cover") }
+                            .ifBlank { enrichedSeries.posterUrl }
+                        val epPlot = firstNonBlank(ep, "plot", "description").ifBlank { firstNonBlank(epInfo ?: JsonObject(), "plot", "description") }.ifBlank { enrichedSeries.plot }
+                        val epDate = firstNonBlank(ep, "releaseDate", "release_date").ifBlank { firstNonBlank(epInfo ?: JsonObject(), "releaseDate", "release_date") }.ifBlank { enrichedSeries.releaseDate }
                         if (id.isNotBlank()) episodes.add(MediaEntry(
                             title, streamUrl("series", id, ext), "Temporada $season", "Episódios", id, ext,
-                            series.seriesId, enrichedSeries.releaseDate, enrichedSeries.plot, enrichedSeries.year,
-                            enrichedSeries.director, enrichedSeries.cast, enrichedSeries.posterUrl
+                            series.seriesId, epDate, epPlot, enrichedSeries.year,
+                            enrichedSeries.director, enrichedSeries.cast, epPoster
                         ))
                     }
                 }
@@ -1190,13 +1270,12 @@ class MainActivity : AppCompatActivity() {
             val currentPlayer = player ?: run { initializePlayer(); player ?: throw IllegalStateException("Player indisponível") }
             currentPlayer.stop(); currentPlayer.clearMediaItems()
             currentPlayer.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.url)).build())
-            val savedPrefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
-            val resumeKey = savedPrefs.getString("resume_key", null)
-            val savedPosition = if (resumeKey == favoriteKey(item)) savedPrefs.getLong("resume_position", 0L) else 0L
+            val savedPosition = getPlaybackPosition(item)
+            saveRecentEntry(item)
             currentPlayer.prepare()
             if (savedPosition > 5000L) currentPlayer.seekTo(savedPosition)
             currentPlayer.playWhenReady = true
-            savePlaybackProgress(item, savedPosition)
+            savePlaybackProgress(item, savedPosition, getPlaybackDuration(item))
             showPlaybackScreen()
         } catch (e: Exception) { toast("Não foi possível abrir este conteúdo: ${e.message.orEmpty().take(100)}") }
     }
@@ -1456,8 +1535,13 @@ class MainActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
     }
 
-    override fun onStop() { super.onStop(); player?.pause() }
+    override fun onStop() {
+        currentPlaying?.let { item -> player?.let { savePlaybackProgress(item, it.currentPosition, it.duration) } }
+        super.onStop()
+        player?.pause()
+    }
     override fun onDestroy() {
+        currentPlaying?.let { item -> player?.let { savePlaybackProgress(item, it.currentPosition, it.duration) } }
         playbackHandler.removeCallbacks(playbackTicker)
         playerViewSafeDetach()
         io.shutdownNow()
