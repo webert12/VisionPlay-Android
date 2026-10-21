@@ -2,14 +2,18 @@ package com.visionplay.app
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.WindowManager
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -31,6 +35,8 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
+import android.text.Editable
+import android.text.TextWatcher
 
 private data class MediaEntry(
     val name: String,
@@ -60,10 +66,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var contentBox: LinearLayout
     private lateinit var playerView: PlayerView
+    private lateinit var searchInput: EditText
 
     private var player: ExoPlayer? = null
     private val entries = mutableListOf<MediaEntry>()
     private var activeSection = "Canais ao vivo"
+    private var selectedFolder: String? = null
+    private var fullScreenMode = false
     @Volatile private var isLoading = false
 
     // Credentials are kept only in memory; this prototype does not save them to disk.
@@ -110,7 +119,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(6), 0, dp(24))
         }, matchWrap())
         body.addView(sectionLabel("CONECTAR AO SEU SERVIDOR"), matchWrap())
-        urlInput = input("URL do servidor (ex.: http://servidor:porta)", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        urlInput = input("URL base ou link completo Xtream/M3U", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         userInput = input("Usuário", InputType.TYPE_CLASS_TEXT)
         passInput = input("Senha", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         body.addView(urlInput, fieldParams())
@@ -198,28 +207,35 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val loaded = mutableListOf<MediaEntry>()
-                updateLoading("Canais ao vivo: carregando...")
+                val warnings = mutableListOf<String>()
+                updateLoading("Canais ao vivo: baixando catálogo completo...")
                 try {
-                    val categories = fetchCategories("get_live_categories")
-                    loaded += fetchItems("get_live_streams", "Canais ao vivo", categories, "live")
+                    val categories = try { fetchCategories("get_live_categories") } catch (_: Exception) { emptyMap() }
+                    val items = fetchItems("get_live_streams", "Canais ao vivo", categories, "live")
+                    loaded.addAll(items)
+                    if (items.isEmpty()) warnings += "Canais: o servidor retornou 0 itens"
                 } catch (e: Exception) {
-                    updateLoading("Canais ao vivo: não foi possível carregar; continuando...")
+                    warnings += "Canais: ${safeError(e)}"
                 }
 
-                updateLoading("Filmes: carregando...")
+                updateLoading("Filmes: baixando catálogo completo. Isso pode levar alguns minutos...")
                 try {
-                    val categories = fetchCategories("get_vod_categories")
-                    loaded += fetchItems("get_vod_streams", "Filmes", categories, "movie")
+                    val categories = try { fetchCategories("get_vod_categories") } catch (_: Exception) { emptyMap() }
+                    val items = fetchItems("get_vod_streams", "Filmes", categories, "movie")
+                    loaded.addAll(items)
+                    if (items.isEmpty()) warnings += "Filmes: o servidor retornou 0 itens"
                 } catch (e: Exception) {
-                    updateLoading("Filmes: não foi possível carregar; continuando...")
+                    warnings += "Filmes: ${safeError(e)}"
                 }
 
-                updateLoading("Séries: carregando...")
+                updateLoading("Séries: baixando catálogo completo. Aguarde...")
                 try {
-                    val categories = fetchCategories("get_series_categories")
-                    loaded += fetchItems("get_series", "Séries", categories, "series")
+                    val categories = try { fetchCategories("get_series_categories") } catch (_: Exception) { emptyMap() }
+                    val items = fetchItems("get_series", "Séries", categories, "series")
+                    loaded.addAll(items)
+                    if (items.isEmpty()) warnings += "Séries: o servidor retornou 0 itens"
                 } catch (e: Exception) {
-                    updateLoading("Séries: não foi possível carregar; continuando...")
+                    warnings += "Séries: ${safeError(e)}"
                 }
 
                 if (loaded.isEmpty()) {
@@ -232,8 +248,11 @@ class MainActivity : AppCompatActivity() {
                     isLoading = false
                     activeSection = if (entries.any { it.section == "Canais ao vivo" }) "Canais ao vivo"
                         else if (entries.any { it.section == "Filmes" }) "Filmes" else "Séries"
+                    selectedFolder = null
+                    searchInputTextReset()
                     showHome()
-                    toast("Catálogos carregados: ${entries.size} itens")
+                    val counts = "${entries.count { it.section == "Canais ao vivo" }} canais, ${entries.count { it.section == "Filmes" }} filmes e ${entries.count { it.section == "Séries" }} séries"
+                    toast("Catálogo carregado: $counts" + if (warnings.isNotEmpty()) " • Alguns catálogos falharam: ${warnings.joinToString("; ").take(250)}" else "")
                 }
             } catch (e: Exception) {
                 val message = safeError(e)
@@ -247,7 +266,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun normalizeServer(raw: String): String? {
         var value = raw.trim().trimEnd('/')
-        value = value.removeSuffix("/player_api.php").removeSuffix("/get.php").trimEnd('/')
+        // Accept a base URL or a complete Xtream/M3U endpoint, but store only the server base.
+        value = value.substringBefore("?").trimEnd('/')
+        listOf("/player_api.php", "/get.php", "/xmltv.php", "/panel_api.php").forEach { suffix ->
+            if (value.endsWith(suffix, true)) value = value.dropLast(suffix.length).trimEnd('/')
+        }
         val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
         if ((uri.scheme != "http" && uri.scheme != "https") || uri.host.isNullOrBlank()) return null
         return value
@@ -265,7 +288,7 @@ class MainActivity : AppCompatActivity() {
     private fun openConnection(url: String): HttpURLConnection {
         return (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
-            readTimeout = 25000
+            readTimeout = 120000
             instanceFollowRedirects = true
             requestMethod = "GET"
             setRequestProperty("User-Agent", "VisionPlayTV/1.1 Android")
@@ -292,12 +315,13 @@ class MainActivity : AppCompatActivity() {
         val connection = openConnection(apiUrl(action))
         try {
             val code = connection.responseCode
-            if (code !in 200..299) throw IllegalStateException("HTTP $code")
+            if (code !in 200..299) throw IllegalStateException("HTTP $code ao consultar $action")
             val map = LinkedHashMap<String, String>()
             JsonReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8)).use { reader ->
                 reader.isLenient = true
                 reader.beginArray()
-                while (reader.hasNext() && map.size < 2000) {
+                // Always consume the full response; stopping early makes endArray() fail on large catalogs.
+                while (reader.hasNext()) {
                     var id = ""
                     var name = "Outros"
                     reader.beginObject()
@@ -324,12 +348,13 @@ class MainActivity : AppCompatActivity() {
         val result = ArrayList<MediaEntry>()
         try {
             val code = connection.responseCode
-            if (code !in 200..299) throw IllegalStateException("HTTP $code")
+            if (code !in 200..299) throw IllegalStateException("HTTP $code ao consultar $action")
             JsonReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8)).use { reader ->
                 reader.isLenient = true
                 reader.beginArray()
-                // Stream JSON one object at a time; cap memory use on very large provider catalogs.
-                while (reader.hasNext() && result.size < MAX_ITEMS_PER_SECTION) {
+                // Keep the entire metadata catalog in memory (not the video files). The UI renders only
+                // the selected folder/search results, so catalogs with tens of thousands of entries work.
+                while (reader.hasNext()) {
                     var id = ""
                     var name = "Conteúdo"
                     var categoryId = ""
@@ -350,7 +375,7 @@ class MainActivity : AppCompatActivity() {
                         val url = when (type) {
                             "live" -> streamUrl("live", id, "ts")
                             "movie" -> streamUrl("movie", id, extension)
-                            else -> "" // Series are expanded to episode list when the user opens one.
+                            else -> "" // Episodes are fetched only when the series is opened.
                         }
                         result.add(MediaEntry(name, url, category, section, id, extension, if (type == "series") id else ""))
                     }
@@ -378,17 +403,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
+        if (::playerView.isInitialized) playerView.player = null
         root = baseScreen()
+        if (fullScreenMode) {
+            root.setPadding(0, 0, 0, 0)
+            val frame = FrameLayout(this)
+            playerView = PlayerView(this).apply {
+                useController = true
+                setBackgroundColor(Color.BLACK)
+                player = this@MainActivity.player
+            }
+            frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+            val back = makeSmallButton("✕  VOLTAR") {
+                fullScreenMode = false
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                showHome()
+            }
+            frame.addView(back, FrameLayout.LayoutParams(-2, dp(44), Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(14); marginEnd = dp(14)
+            })
+            root.addView(frame, LinearLayout.LayoutParams(-1, -1))
+            setContentView(root)
+            return
+        }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         header.addView(TextView(this).apply {
-            text = "VISION PLAY TV"; textSize = 22f; setTextColor(blue)
+            text = "VISION PLAY"; textSize = 23f; setTextColor(blue)
             typeface = Typeface.DEFAULT_BOLD; letterSpacing = .04f
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(makeSmallButton("TROCAR CONTA") { stopPlayback(); showLogin() })
+        header.addView(makeSmallButton("⛶ TELA CHEIA") {
+            fullScreenMode = true
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+            showHome()
+        })
+        header.addView(makeSmallButton("CONTA") { stopPlayback(); selectedFolder = null; showLogin() })
         root.addView(header, matchWrap())
         root.addView(TextView(this).apply {
-            text = "Canais ao vivo  •  Filmes  •  Séries"
-            setTextColor(muted); textSize = 13f; setPadding(0, dp(5), 0, dp(15))
+            text = "FILMES, SÉRIES E TV AO VIVO"; setTextColor(muted); textSize = 11f
+            letterSpacing = .09f; setPadding(0, dp(4), 0, dp(12))
         }, matchWrap())
 
         playerView = PlayerView(this).apply {
@@ -396,59 +452,190 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Color.BLACK)
             player = this@MainActivity.player
         }
-        root.addView(playerView, LinearLayout.LayoutParams(-1, dp(210)).apply { bottomMargin = dp(14) })
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        root.addView(playerView, LinearLayout.LayoutParams(-1, if (landscape) dp(150) else dp(205)).apply { bottomMargin = dp(10) })
 
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("Canais ao vivo", "Filmes", "Séries").forEach { label ->
-            tabs.addView(makeSmallButton(label) { showSection(label) },
-                LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+            tabs.addView(makeSmallButton(label) {
+                activeSection = label; selectedFolder = null; showSection(label)
+            }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(5) })
         }
         root.addView(tabs, matchWrap())
+        searchInput = input("Buscar canais, filmes ou séries...", InputType.TYPE_CLASS_TEXT).apply {
+            setText(searchQuery)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    searchQuery = s?.toString().orEmpty()
+                    selectedFolder = null
+                    showSection(activeSection)
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
+        root.addView(searchInput, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8); bottomMargin = dp(6) })
         contentBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
         scroll.addView(contentBox)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         showSection(activeSection)
     }
 
+    private var searchQuery: String = ""
+
+    private fun searchInputTextReset() { searchQuery = "" }
+
     private fun showSection(section: String) {
         activeSection = section
-        if (!::contentBox.isInitialized) return
+        if (!::contentBox.isInitialized || fullScreenMode) return
         contentBox.removeAllViews()
-        val list = entries.filter { it.section == section }
+        val all = entries.filter { it.section == section }
+        val query = searchQuery.trim()
+        val filtered = if (query.isBlank()) all else all.filter {
+            it.name.contains(query, true) || it.group.contains(query, true) || folderFor(it).contains(query, true)
+        }
         contentBox.addView(TextView(this).apply {
-            text = "$section  •  ${list.size} itens"
-            setTextColor(white); textSize = 17f; typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, dp(16), 0, dp(10))
+            text = when (section) {
+                "Canais ao vivo" -> "TV AO VIVO  •  ${all.size} canais"
+                "Filmes" -> "FILMES  •  ${all.size} títulos"
+                "Séries" -> "SÉRIES  •  ${all.size} títulos"
+                else -> "$section  •  ${all.size} itens"
+            }
+            setTextColor(white); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(2), dp(12), 0, dp(10))
         }, matchWrap())
-        if (list.isEmpty()) {
+
+        if (filtered.isEmpty()) {
             contentBox.addView(TextView(this).apply {
-                text = "Nenhum conteúdo disponível nesta seção. O servidor pode não oferecer este catálogo para sua conta."
-                setTextColor(muted); textSize = 14f
-                setPadding(dp(12), dp(12), dp(12), dp(12)); setBackgroundColor(panel)
+                text = if (all.isEmpty()) "O servidor não disponibilizou itens nesta seção. Confira se seu plano inclui este catálogo e se a API Xtream está habilitada." else "Nenhum resultado encontrado. Tente outro termo."
+                setTextColor(muted); textSize = 14f; setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
             }, matchWrap())
             return
         }
-        list.take(180).forEach { item ->
-            contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(58)).apply { bottomMargin = dp(6) })
+
+        if (query.isBlank() && selectedFolder == null && section != "Episódios") {
+            val folders = filtered.groupBy { folderFor(it) }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
+            folders.forEach { (folder, items) ->
+                contentBox.addView(makeFolderRow(folder, items.size) {
+                    selectedFolder = folder
+                    showSection(section)
+                }, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(7) })
+            }
+            return
         }
-        if (list.size > 180) contentBox.addView(TextView(this).apply {
-            text = "Exibindo os primeiros 180 itens desta seção para manter a interface responsiva."
-            setTextColor(muted); textSize = 12f; setPadding(0, dp(8), 0, dp(12))
-        }, matchWrap())
+
+        if (section == "Episódios") {
+            contentBox.addView(makeSmallButton("‹  VOLTAR PARA SÉRIES") {
+                activeSection = "Séries"; selectedFolder = null; showSection("Séries")
+            }, LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(8) })
+        }
+        if (query.isBlank() && selectedFolder != null) {
+            contentBox.addView(makeSmallButton("‹  TODAS AS PASTAS") { selectedFolder = null; showSection(section) },
+                LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(8) })
+        }
+        val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
+        visible.forEach { item ->
+            contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(62)).apply { bottomMargin = dp(7) })
+        }
+    }
+
+    private fun folderFor(item: MediaEntry): String {
+        val text = (item.name + " " + item.group).lowercase()
+        return when (item.section) {
+            "Canais ao vivo" -> {
+                val station = when {
+                    Regex("\\b(globo|rede globo)\\b").containsMatchIn(text) -> "Globo"
+                    Regex("\\b(sbt)\\b").containsMatchIn(text) -> "SBT"
+                    Regex("\\b(record|record tv)\\b").containsMatchIn(text) -> "Record"
+                    Regex("\\b(band|bandeirantes)\\b").containsMatchIn(text) -> "Band"
+                    Regex("\\b(rede tv|redetv)\\b").containsMatchIn(text) -> "RedeTV!"
+                    Regex("\\b(cultura)\\b").containsMatchIn(text) -> "TV Cultura"
+                    Regex("\\b(espn)\\b").containsMatchIn(text) -> "ESPN"
+                    Regex("\\b(sportv|spor tv)\\b").containsMatchIn(text) -> "SporTV"
+                    Regex("\\b(fox sports)\\b").containsMatchIn(text) -> "Fox Sports"
+                    Regex("\\b(telecine)\\b").containsMatchIn(text) -> "Telecine"
+                    Regex("\\b(hbo)\\b").containsMatchIn(text) -> "HBO"
+                    Regex("\\b(discovery)\\b").containsMatchIn(text) -> "Discovery"
+                    Regex("\\b(cartoon|nickelodeon|disney junior|gloob)\\b").containsMatchIn(text) -> "Infantil"
+                    else -> item.group.ifBlank { "Outros canais" }
+                }
+                val region = when {
+                    Regex("(capital|nacional|s\u00e3o paulo capital|rio capital)").containsMatchIn(text) -> "Capital / Nacional"
+                    Regex("(regional|interior|interiorana|local| mg|\\bmg\\b|\\bsp\\b|\\brj\\b|\\bba\\b|\\bpr\\b|\\bsc\\b|\\brs\\b|\\bgo\\b|\\bpe\\b|\\bce\\b)").containsMatchIn(text) -> "Regional"
+                    else -> "Geral"
+                }
+                "$station • $region"
+            }
+            "Filmes" -> item.group.ifBlank { "Outros filmes" }
+            "Séries" -> {
+                val platform = when {
+                    "netflix" in text -> "Netflix"
+                    "hbo" in text || "max original" in text || Regex("\\bmax\\b").containsMatchIn(text) -> "HBO / Max"
+                    "prime video" in text || "amazon" in text -> "Prime Video / Amazon"
+                    "globoplay" in text || "globo play" in text -> "Globoplay"
+                    "disney+" in text || "disney plus" in text -> "Disney+"
+                    "paramount" in text -> "Paramount+"
+                    "apple tv" in text -> "Apple TV+"
+                    "crunchyroll" in text -> "Crunchyroll"
+                    "peacock" in text -> "Peacock"
+                    "star+" in text || "star plus" in text -> "Star+"
+                    else -> "Outras séries • ${item.group.ifBlank { "Sem categoria" }}"
+                }
+                platform
+            }
+            else -> item.group.ifBlank { "Outros" }
+        }
+    }
+
+    private fun makeFolderRow(name: String, count: Int, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(14), dp(8), dp(12), dp(8)); setBackgroundColor(panel)
+        val symbol = TextView(this@MainActivity).apply {
+            text = when {
+                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> "▣"
+                name.contains("Netflix", true) || name.contains("HBO", true) || name.contains("Prime", true) || name.contains("GloboPlay", true) -> "▶"
+                else -> "▰"
+            }
+            textSize = 22f; setTextColor(cyan); gravity = Gravity.CENTER
+            setBackgroundColor(panel2)
+        }
+        addView(symbol, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = name; setTextColor(white); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; maxLines = 2
+            }, matchWrap())
+            addView(TextView(this@MainActivity).apply {
+                text = "$count conteúdos"; setTextColor(muted); textSize = 11f; setPadding(0, dp(3), 0, 0)
+            }, matchWrap())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(TextView(this@MainActivity).apply { text = "›"; textSize = 28f; setTextColor(cyan) })
+        setOnClickListener { action() }
     }
 
     private fun makeMediaRow(item: MediaEntry): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(12), dp(4), dp(8), dp(4))
+        setPadding(dp(12), dp(6), dp(8), dp(6))
         setBackgroundColor(panel)
         addView(TextView(this@MainActivity).apply {
-            text = item.name
-            setTextColor(white); textSize = 14f; maxLines = 2
+            text = when (item.section) { "Canais ao vivo" -> "●"; "Filmes" -> "▶"; else -> "▤" }
+            setTextColor(cyan); textSize = 16f; gravity = Gravity.CENTER
+            setBackgroundColor(panel2)
+        }, LinearLayout.LayoutParams(dp(38), dp(42)).apply { marginEnd = dp(10) })
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = item.name; setTextColor(white); textSize = 13f; maxLines = 2; typeface = Typeface.DEFAULT_BOLD
+            }, matchWrap())
+            addView(TextView(this@MainActivity).apply {
+                text = if (item.section == "Séries") "Série • toque para ver episódios" else item.group
+                setTextColor(muted); textSize = 10f; maxLines = 1; setPadding(0, dp(2), 0, 0)
+            }, matchWrap())
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        addView(makeSmallButton(if (item.section == "Séries") "EPISÓDIOS" else "▶") {
+        addView(makeSmallButton(if (item.section == "Séries") "EPISÓDIOS" else "ASSISTIR") {
             if (item.section == "Séries") loadSeriesEpisodes(item) else play(item)
         })
         setOnClickListener { if (item.section == "Séries") loadSeriesEpisodes(item) else play(item) }
@@ -467,7 +654,7 @@ class MainActivity : AppCompatActivity() {
                 for ((season, array) in episodesRoot.entrySet()) {
                     if (!array.isJsonArray) continue
                     for (episode in array.asJsonArray) {
-                        if (!episode.isJsonObject || episodes.size >= 500) continue
+                        if (!episode.isJsonObject) continue
                         val ep = episode.asJsonObject
                         val id = ep.stringValue("id")
                         val title = ep.stringValue("title").ifBlank { "Temporada $season • Episódio ${episodes.size + 1}" }
@@ -612,6 +799,11 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!fullScreenMode && !isFinishing && entries.isNotEmpty()) showHome()
+    }
+
     override fun onStop() { super.onStop(); player?.pause() }
     override fun onDestroy() {
         playerViewSafeDetach()
@@ -623,6 +815,6 @@ class MainActivity : AppCompatActivity() {
     private fun playerViewSafeDetach() { if (::playerView.isInitialized) playerView.player = null }
 
     companion object {
-        private const val MAX_ITEMS_PER_SECTION = 3000
+        private const val MAX_ITEMS_PER_SECTION = Int.MAX_VALUE
     }
 }

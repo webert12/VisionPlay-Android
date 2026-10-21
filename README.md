@@ -1,15 +1,24 @@
-# Vision Play TV — Xtream API prototype
+# Vision Play TV — Xtream API
 
-Android app prototype using Kotlin, AndroidX Media3 and Xtream Codes-compatible `player_api.php`.
+Aplicativo Android para celular, Android TV e TV Box, com interface escura e azul.
 
-## Connect
-Enter the server base URL, username and password. The app checks `player_api.php`, then requests live categories/streams, VOD categories/streams, and series categories/series independently.
+## Recursos desta versão
+- Conexão por URL do servidor, usuário e senha Xtream.
+- Aceita URL base ou URL completa com `player_api.php` / `get.php`; o app normaliza o endereço para a API.
+- Carrega os catálogos completos de canais ao vivo, filmes e séries, sem o antigo limite de 3.000 itens.
+- Leitura JSON em fluxo e carregamento em segundo plano para lidar com listas extensas.
+- Pastas de canais por emissora/região quando os nomes permitem identificar; filmes pelas categorias do servidor; séries por streaming quando reconhecido no nome/categoria.
+- Busca por título, categoria e pasta.
+- Tela cheia em modo paisagem com botão para voltar.
+- Episódios de séries consultados ao abrir uma série.
+- Credenciais mantidas apenas em memória nesta versão.
 
-## Notes
-- Credentials are kept in memory only in this prototype; they are not saved to disk or printed to logs.
-- Prefer HTTPS. HTTP sends credentials and stream URLs without transport encryption.
-- Catalogs are parsed as streaming JSON, with a cap of 3,000 items per section to reduce memory pressure.
-- Series episodes are requested separately with `get_series_info` when a series is selected.
-- The API and stream URL conventions vary between providers. If the provider uses a custom API or path, the implementation may need adjustment.
-- Only use services and streams you are authorized to access.
-- GitHub Actions builds a debug APK for testing; this is not a Play Store release build.
+## Gerar APK
+O GitHub Actions compila `app-debug.apk` a cada push na branch `main` ou manualmente em Actions > Build VisionPlay APK > Run workflow. Baixe o artefato `VisionPlay-APK-debug`.
+
+## Observações
+- O aplicativo baixa metadados/catálogos, não baixa os arquivos de vídeo inteiros para o aparelho.
+- Catálogos grandes (por exemplo, dezenas de milhares de filmes) podem demorar alguns minutos, dependendo do servidor e da conexão.
+- Os agrupamentos por emissora/região/plataforma dependem dos nomes e categorias fornecidos pela API. Quando o provedor não informa esses dados, o item fica em uma pasta genérica.
+- Prefira HTTPS. Em HTTP, usuário e senha trafegam sem criptografia.
+- A disponibilidade de canais, filmes e séries depende dos direitos e do plano autorizado pelo provedor.
