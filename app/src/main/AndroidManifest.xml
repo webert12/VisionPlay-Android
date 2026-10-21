@@ -7,7 +7,7 @@
         android:allowBackup="true"
         android:label="VisionPlay"
         android:theme="@style/Theme.VisionPlay"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
