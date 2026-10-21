@@ -861,9 +861,9 @@ class MainActivity : AppCompatActivity() {
         val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
         val page = visible.take(visibleLimit)
         page.forEach { item -> contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(72)).apply { bottomMargin = dp(6) }) }
-        if (visible.size > page.size) contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size) {
+        if (visible.size > page.size) contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size, action = {
             visibleLimit += 100; showSection(section)
-        }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(4); bottomMargin = dp(8) })
+        }), LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(4); bottomMargin = dp(8) })
         if (page.isEmpty() && visible.isEmpty()) contentBox.addView(TextView(this).apply {
             text = "Nenhum conteúdo nesta pasta."; setTextColor(muted); textSize = 14f
             setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
@@ -963,7 +963,7 @@ class MainActivity : AppCompatActivity() {
             else setImageResource(when {
                 name.contains("Carregar mais", true) -> android.R.drawable.ic_input_add
                 name.contains("Netflix", true) || name.contains("HBO", true) || name.contains("Max", true) -> android.R.drawable.ic_media_play
-                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> android.R.drawable.ic_menu_tv
+                name.contains("Globo", true) || name.contains("SBT", true) || name.contains("Record", true) || name.contains("Band", true) -> android.R.drawable.ic_media_play
                 else -> android.R.drawable.ic_menu_gallery
             })
         }
