@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.VisionPlay" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#168BFF</item>
+        <item name="colorPrimaryVariant">#0864C7</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:statusBarColor">#070B12</item>
+        <item name="android:navigationBarColor">#070B12</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#070B12</item>
+    </style>
+</resources>
