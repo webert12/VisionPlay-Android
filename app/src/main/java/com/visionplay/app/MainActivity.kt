@@ -565,6 +565,7 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(muted); setPadding(0, dp(6), 0, 0)
                 }, matchWrap())
                 isFocusable = true
+                applyTvFocus(this)
                 setOnClickListener {
                     activeSection = section
                     selectedFolder = null
@@ -800,6 +801,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 isFocusable = true
+                applyTvFocus(this)
             }
             horizontal.addView(card, LinearLayout.LayoutParams(dp(126), -2).apply { marginEnd = dp(8) })
         }
@@ -1396,6 +1398,8 @@ class MainActivity : AppCompatActivity() {
             }, matchWrap())
         }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(TextView(this@MainActivity).apply { text = "›"; textSize = 28f; setTextColor(cyan) })
+        isFocusable = true
+        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
@@ -1423,6 +1427,8 @@ class MainActivity : AppCompatActivity() {
         addView(makeSmallButton(when (item.section) { "Séries" -> "TEMPORADAS"; "Episódios" -> "ASSISTIR"; else -> "DETALHES" }) {
             if (item.section == "Episódios") play(item) else openContentDetails(item)
         })
+        isFocusable = true
+        applyTvFocus(this)
         setOnClickListener { if (item.section == "Episódios") play(item) else openContentDetails(item) }
     }
 
@@ -1807,7 +1813,7 @@ class MainActivity : AppCompatActivity() {
         play(currentPlaybackQueue[next])
     }
 
-    /** Lista de canais com reprodução contínua em janela reduzida, estilo TV. */
+    /** Mini player à esquerda e navegação por categorias à direita, sem despejar todos os canais. */
     private fun showChannelBrowse() {
         val playing = currentPlaying ?: return
         if (playing.section != "Canais ao vivo") { fullScreenMode = false; showCatalog(); return }
@@ -1817,35 +1823,90 @@ class MainActivity : AppCompatActivity() {
         playerViewSafeDetach()
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(bg); setPadding(dp(12), dp(8), dp(12), dp(8)) }
+
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(bg)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(TextView(this).apply { text = "CANAIS AO VIVO"; setTextColor(white); textSize = 19f; typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, dp(42), 1f))
+        header.addView(TextView(this).apply {
+            text = "ASSISTINDO AGORA"; setTextColor(white); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, dp(42), 1f))
         header.addView(makeSmallButton("⌂ INÍCIO") { channelBrowseMode = false; showHome() })
         root.addView(header, matchWrap())
+
         val split = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
-        val channelList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val channelScroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; addView(channelList) }
-        val channels = entries.filter { it.section == "Canais ao vivo" && it.url.isNotBlank() }
-        channels.forEachIndexed { index, channel ->
-            val button = makeSmallButton("${if (channel.url == playing.url) "▶  " else ""}${channel.name}") { play(channel) }
-            button.gravity = Gravity.CENTER_VERTICAL
-            button.setPadding(dp(12), dp(4), dp(8), dp(4))
-            channelList.addView(button, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(3) })
-            if (channel.url == playing.url) button.post { button.requestFocus() }
+        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, dp(10), 0) }
+        val mini = PlayerView(this).apply {
+            useController = false
+            player = this@MainActivity.player
+            setBackgroundColor(Color.BLACK)
+            isFocusable = true
+            contentDescription = "Vídeo em reprodução. Selecione para voltar à tela cheia"
+            setOnClickListener { fullScreenMode = true; showPlaybackScreen() }
         }
-        split.addView(channelScroll, LinearLayout.LayoutParams(0, dp(0), 1.05f).apply { height = 0 })
+        left.addView(mini, LinearLayout.LayoutParams(-1, 0, 1f))
+        left.addView(TextView(this).apply {
+            text = playing.name; setTextColor(white); textSize = 14f; maxLines = 2
+            setPadding(dp(2), dp(8), dp(2), dp(4))
+        }, matchWrap())
+        left.addView(makeSmallButton("VOLTAR AO VÍDEO") { fullScreenMode = true; showPlaybackScreen() }, matchWrap())
+        split.addView(left, LinearLayout.LayoutParams(0, -1, 1.05f))
+
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0) }
-        val mini = PlayerView(this).apply { useController = false; player = this@MainActivity.player; setBackgroundColor(Color.BLACK); isFocusable = false }
-        mini.setOnClickListener { fullScreenMode = true; showPlaybackScreen() }
-        right.addView(mini, LinearLayout.LayoutParams(-1, 0, 1f))
-        right.addView(TextView(this).apply { text = playing.name; setTextColor(white); textSize = 14f; maxLines = 2; setPadding(0, dp(8), 0, dp(4)) }, matchWrap())
-        right.addView(makeSmallButton("VOLTAR AO VÍDEO") { fullScreenMode = true; showPlaybackScreen() }, matchWrap())
-        split.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
-        // Weighted split with bounded list area works with Fire TV remote focus navigation.
-        channelScroll.layoutParams = LinearLayout.LayoutParams(0, -1, 1.05f)
+        right.addView(TextView(this).apply {
+            text = "ESCOLHA UMA CATEGORIA"; setTextColor(cyan); textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD; setPadding(dp(4), dp(4), dp(4), dp(8))
+        }, matchWrap())
+        val rightScroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false }
+        val rightList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        rightScroll.addView(rightList)
+        right.addView(rightScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        split.addView(right, LinearLayout.LayoutParams(0, -1, 1.35f))
         root.addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
-        channelScroll.post { channelList.getChildAt(currentPlaybackIndex.coerceIn(0, (channelList.childCount - 1).coerceAtLeast(0)))?.requestFocus() }
+
+        val channels = entries.filter { it.section == "Canais ao vivo" && it.url.isNotBlank() }
+        fun showCategories() {
+            rightList.removeAllViews()
+            rightList.addView(TextView(this).apply {
+                text = "Pastas de canais"; setTextColor(muted); textSize = 12f
+                setPadding(dp(8), dp(5), dp(8), dp(8))
+            }, matchWrap())
+            val folders = channels.groupBy { folderFor(it) }.entries.sortedWith(
+                compareByDescending<Map.Entry<String, List<MediaEntry>>> { it.value.size }
+                    .thenBy { it.key.lowercase() }
+            )
+            folders.forEach { folder ->
+                val row = makeFolderRow(folder.key, folder.value.size, {
+                    rightList.removeAllViews()
+                    rightList.addView(makeSmallButton("‹  TODAS AS CATEGORIAS") { showCategories() },
+                        LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(6) })
+                    rightList.addView(TextView(this).apply {
+                        text = folder.key; setTextColor(cyan); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+                        setPadding(dp(8), dp(5), dp(8), dp(8))
+                    }, matchWrap())
+                    folder.value.forEach { channel ->
+                        val button = makeSmallButton("${if (channel.url == currentPlaying?.url) "▶  " else ""}${channel.name}") { play(channel) }
+                        button.gravity = Gravity.CENTER_VERTICAL
+                        button.setPadding(dp(12), dp(4), dp(8), dp(4))
+                        rightList.addView(button, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(3) })
+                        if (channel.url == currentPlaying?.url) button.post { button.requestFocus() }
+                    }
+                    rightScroll.post { rightScroll.scrollTo(0, 0) }
+                })
+                row.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(panel); cornerRadius = dp(10).toFloat(); setStroke(dp(1), navigationAccent())
+                }
+                row.isFocusable = true
+                rightList.addView(row, LinearLayout.LayoutParams(-1, dp(58)).apply {
+                    bottomMargin = dp(5); marginStart = dp(2); marginEnd = dp(2)
+                })
+            }
+            rightScroll.post { rightList.getChildAt(1)?.requestFocus() }
+        }
+        showCategories()
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -2012,11 +2073,14 @@ class MainActivity : AppCompatActivity() {
         view.setOnFocusChangeListener { focusedView, hasFocus ->
             val accent = navigationAccent()
             focusedView.foreground = android.graphics.drawable.GradientDrawable().apply {
-                setColor(if (hasFocus) Color.argb(30, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.TRANSPARENT)
+                // Highlight must be obvious on TV: tint the whole selected card and draw a thick accent border.
+                setColor(if (hasFocus) Color.argb(105, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.TRANSPARENT)
                 cornerRadius = dp(12).toFloat()
-                setStroke(dp(if (hasFocus) 3 else 1), if (hasFocus) accent else Color.argb(80, 100, 150, 190))
+                setStroke(dp(if (hasFocus) 4 else 1), if (hasFocus) accent else Color.argb(80, 100, 150, 190))
             }
-            focusedView.elevation = if (hasFocus) dp(8).toFloat() else 0f
+            focusedView.elevation = if (hasFocus) dp(10).toFloat() else 0f
+            focusedView.scaleX = if (hasFocus) 1.025f else 1f
+            focusedView.scaleY = if (hasFocus) 1.025f else 1f
         }
     }
 

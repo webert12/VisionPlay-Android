@@ -1,0 +1,8 @@
+VISION PLAY TV v23 - NAVEGACAO DE CANAIS POR CATEGORIA
+- Ao apertar voltar durante um canal, o vídeo fica em mini player à esquerda.
+- À direita aparecem pastas/categorias de canais, sem listar todos os canais de uma vez.
+- Ao abrir uma pasta, só os canais daquela categoria são mostrados.
+- Há opção para retornar à lista de categorias; o botão voltar do controle na tela reduzida retorna à tela inicial.
+- O mini player mantém o canal em reprodução e permite voltar à tela cheia.
+
+Observação: código atualizado; a compilação e o funcionamento em Fire TV precisam ser verificados pelo workflow do GitHub Actions e no dispositivo.
