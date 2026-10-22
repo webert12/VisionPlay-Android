@@ -1,0 +1,9 @@
+VISION PLAY TV — V15: CATÁLOGO EM BLOCOS
+
+- Pastas de canais, filmes e séries agora são apresentadas em cartões/blocos de três colunas, em vez de uma lista vertical longa.
+- Canais e emissoras usam a logo fornecida pelo catálogo quando disponível; pastas de emissoras conhecidas tentam mostrar o logotipo correspondente.
+- Filmes, séries, episódios e temporadas aparecem em cartões com capa, título e informação secundária.
+- A pasta Vistos Recentemente dentro de cada seção também usa cartões e exibe o progresso de reprodução quando disponível.
+- Mantém o fluxo de navegação e ações de abrir detalhes/assistir já presentes no projeto.
+
+Nota: a aparência das logos depende da disponibilidade de imagens no servidor ou da conexão com os endereços de logos. A compilação do APK deve ser validada pelo GitHub Actions.

@@ -823,22 +823,7 @@ class MainActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
             val recentItems = recentForSection(section)
             val page = recentItems.take(visibleLimit)
-            page.forEach { item ->
-                val progress = getPlaybackPosition(item)
-                val duration = getPlaybackDuration(item)
-                val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                row.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(72)))
-                if ((item.section == "Filmes" || item.section == "Episódios") && progress > 5000L) {
-                    val progressText = if (duration > 0L) "Continuar • ${formatTime(progress)} / ${formatTime(duration)}" else "Continuar de onde parou"
-                    row.addView(TextView(this).apply {
-                        text = progressText
-                        setTextColor(cyan); textSize = 11f
-                        setPadding(dp(12), dp(3), dp(12), dp(4))
-                        setOnClickListener { play(item) }
-                    }, matchWrap())
-                }
-                contentBox.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
-            }
+            addBlockGrid(contentBox, page.map { item -> makeMediaBlock(item, showProgress = true) })
             if (recentItems.size > page.size) contentBox.addView(makeFolderRow("CARREGAR MAIS", recentItems.size - page.size, {
                 visibleLimit += 100
                 showSection(section)
@@ -869,12 +854,12 @@ class MainActivity : AppCompatActivity() {
                         text = "ESCOLHA UMA TEMPORADA"; setTextColor(muted); textSize = 11f; typeface = Typeface.DEFAULT_BOLD
                         setPadding(dp(2), dp(4), 0, dp(8))
                     }, matchWrap())
-                    seasons.forEach { season ->
-                        contentBox.addView(makeSeasonCard(season.key, season.value.size, series?.posterUrl.orEmpty()) {
+                    addBlockGrid(contentBox, seasons.map { season ->
+                        makeSeasonBlock(season.key, season.value.size, series?.posterUrl.orEmpty()) {
                             selectedSeason = season.key
                             showSection("Episódios")
-                        }, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(8) })
-                    }
+                        }
+                    })
                 }
             } else {
                 contentBox.addView(makeSmallButton("‹  TODAS AS TEMPORADAS") {
@@ -883,9 +868,7 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
                 val seasonEpisodes = all.filter { it.group == selectedSeason }
                     .sortedWith(compareBy<MediaEntry> { episodeNumber(it.name) }.thenBy { it.name })
-                seasonEpisodes.forEach { episode ->
-                    contentBox.addView(makeMediaRow(episode), LinearLayout.LayoutParams(-1, dp(72)).apply { bottomMargin = dp(7) })
-                }
+                addBlockGrid(contentBox, seasonEpisodes.map { episode -> makeMediaBlock(episode) })
                 if (seasonEpisodes.isEmpty()) {
                     contentBox.addView(TextView(this).apply { text = "Nenhum episódio encontrado nesta temporada."; setTextColor(muted); setPadding(dp(12), dp(16), dp(12), dp(16)) }, matchWrap())
                 }
@@ -907,11 +890,11 @@ class MainActivity : AppCompatActivity() {
                 else if (a.value.size != b.value.size) b.value.size.compareTo(a.value.size)
                 else a.key.compareTo(b.key, ignoreCase = true)
             })
-            folders.forEach { folderEntry ->
-                contentBox.addView(makeFolderRow(folderEntry.key, folderEntry.value.size, {
+            addBlockGrid(contentBox, folders.map { folderEntry ->
+                makeFolderBlock(folderEntry.key, folderEntry.value.size, folderEntry.value.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl.orEmpty()) {
                     selectedFolder = folderEntry.key; visibleLimit = 100; showSection(section)
-                }, folderEntry.value.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl.orEmpty()), LinearLayout.LayoutParams(-1, dp(64)).apply { bottomMargin = dp(6) })
-            }
+                }
+            })
             return
         }
         if (query.isBlank() && selectedFolder != null) {
@@ -920,7 +903,7 @@ class MainActivity : AppCompatActivity() {
         }
         val visible = if (query.isBlank() && selectedFolder != null) filtered.filter { folderFor(it) == selectedFolder } else filtered
         val page = visible.take(visibleLimit)
-        page.forEach { item -> contentBox.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(72)).apply { bottomMargin = dp(6) }) }
+        addBlockGrid(contentBox, page.map { item -> makeMediaBlock(item) })
         if (visible.size > page.size) contentBox.addView(makeFolderRow("Carregar mais conteúdos", visible.size - page.size, action = {
             visibleLimit += 100; showSection(section)
         }), LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(4); bottomMargin = dp(8) })
@@ -986,6 +969,124 @@ class MainActivity : AppCompatActivity() {
     private fun episodeNumber(value: String): Int {
         val patterns = listOf(Regex("(?i)\\bS\\d+\\s*E(\\d+)\\b"), Regex("(?i)epis[oó]dio\\s*(\\d+)"), Regex("(?i)\\bE(\\d+)\\b"))
         return patterns.firstNotNullOfOrNull { it.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull() } ?: Int.MAX_VALUE
+    }
+
+    /** Lays catalog cards out in equal-width blocks instead of a long vertical list. */
+    private fun addBlockGrid(container: LinearLayout, cards: List<View>, columns: Int = 3) {
+        if (cards.isEmpty()) return
+        cards.chunked(columns).forEach { rowCards ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.TOP
+            }
+            rowCards.forEach { card ->
+                row.addView(card, LinearLayout.LayoutParams(0, dp(154), 1f).apply {
+                    setMargins(dp(4), dp(4), dp(4), dp(7))
+                })
+            }
+            repeat(columns - rowCards.size) {
+                row.addView(View(this), LinearLayout.LayoutParams(0, dp(154), 1f).apply {
+                    setMargins(dp(4), dp(4), dp(4), dp(7))
+                })
+            }
+            container.addView(row, LinearLayout.LayoutParams(-1, -2))
+        }
+    }
+
+    private fun makeFolderBlock(name: String, count: Int, imageUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(7), dp(9), dp(7), dp(8))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(panel)
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), Color.rgb(35, 72, 108))
+        }
+        isFocusable = true
+        val logo = ImageView(this@MainActivity).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(panel2); cornerRadius = dp(9).toFloat()
+            }
+        }
+        addView(logo, LinearLayout.LayoutParams(-1, dp(76)))
+        val logoUrl = imageUrl.ifBlank {
+            when {
+                name.contains("Globo", true) -> "https://logo.clearbit.com/globo.com"
+                name.contains("SBT", true) -> "https://logo.clearbit.com/sbt.com.br"
+                name.contains("Record", true) -> "https://logo.clearbit.com/r7.com"
+                name.contains("Band", true) -> "https://logo.clearbit.com/band.uol.com.br"
+                name.contains("Netflix", true) -> "https://logo.clearbit.com/netflix.com"
+                name.contains("HBO", true) || name.contains("Max", true) -> "https://logo.clearbit.com/max.com"
+                name.contains("Prime Video", true) || name.contains("Amazon", true) -> "https://logo.clearbit.com/primevideo.com"
+                name.contains("Globoplay", true) -> "https://logo.clearbit.com/globoplay.globo.com"
+                name.contains("Disney", true) -> "https://logo.clearbit.com/disneyplus.com"
+                else -> ""
+            }
+        }
+        if (logoUrl.isNotBlank()) loadPoster(logoUrl, logo) else logo.setImageResource(android.R.drawable.ic_menu_gallery)
+        addView(TextView(this@MainActivity).apply {
+            text = name
+            setTextColor(white); textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(7), 0, dp(2))
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        addView(TextView(this@MainActivity).apply {
+            text = "$count conteúdos"; setTextColor(cyan); textSize = 10f; gravity = Gravity.CENTER
+        }, matchWrap())
+        setOnClickListener { action() }
+    }
+
+    private fun makeMediaBlock(item: MediaEntry, showProgress: Boolean = false): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(6), dp(6), dp(6), dp(7))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(panel); cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.rgb(31, 55, 80))
+        }
+        isFocusable = true
+        val poster = ImageView(this@MainActivity).apply {
+            scaleType = if (item.section == "Canais ao vivo") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+            setPadding(if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0)
+            setBackgroundColor(panel2)
+        }
+        addView(poster, LinearLayout.LayoutParams(-1, dp(88)))
+        if (item.posterUrl.isNotBlank()) loadPoster(item.posterUrl, poster) else poster.setImageResource(
+            when (item.section) { "Canais ao vivo" -> android.R.drawable.ic_media_play; "Filmes" -> android.R.drawable.ic_menu_gallery; else -> android.R.drawable.ic_menu_slideshow }
+        )
+        addView(TextView(this@MainActivity).apply {
+            text = item.name; setTextColor(white); textSize = 11f; typeface = Typeface.DEFAULT_BOLD
+            maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(1), dp(6), dp(1), 0)
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        addView(TextView(this@MainActivity).apply {
+            text = when (item.section) { "Canais ao vivo" -> item.group.ifBlank { "Canal ao vivo" }; "Episódios" -> item.group; else -> item.year.ifBlank { item.group } }
+            setTextColor(muted); textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(1), dp(3), dp(1), 0)
+        }, matchWrap())
+        if (showProgress && (item.section == "Filmes" || item.section == "Episódios")) {
+            val pos = getPlaybackPosition(item); val duration = getPlaybackDuration(item)
+            if (pos > 5000L) addView(TextView(this@MainActivity).apply {
+                text = if (duration > 0L) "▶ ${formatTime(pos)} / ${formatTime(duration)}" else "▶ Continuar"
+                setTextColor(cyan); textSize = 9f; maxLines = 1
+                setOnClickListener { play(item) }
+            }, matchWrap())
+        }
+        setOnClickListener { if (item.section == "Episódios") play(item) else openContentDetails(item) }
+    }
+
+    private fun makeSeasonBlock(name: String, count: Int, posterUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+        setPadding(dp(6), dp(6), dp(6), dp(7))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(panel); cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.rgb(31, 55, 80))
+        }
+        val image = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(panel2) }
+        addView(image, LinearLayout.LayoutParams(-1, dp(88)))
+        if (posterUrl.isNotBlank()) loadPoster(posterUrl, image) else image.setImageResource(android.R.drawable.ic_menu_gallery)
+        addView(TextView(this@MainActivity).apply { text = name; setTextColor(white); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(3)) }, matchWrap())
+        addView(TextView(this@MainActivity).apply { text = "$count episódios"; setTextColor(cyan); textSize = 10f; gravity = Gravity.CENTER }, matchWrap())
+        isFocusable = true; setOnClickListener { action() }
     }
 
     private fun makeSeasonCard(name: String, count: Int, posterUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
