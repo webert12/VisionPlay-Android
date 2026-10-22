@@ -567,15 +567,6 @@ class MainActivity : AppCompatActivity() {
 
         val homeScroll = ScrollView(this).apply { isFillViewport = false; clipToPadding = false }
         val homeRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val continueWatching = loadContinueWatchingEntries()
-        if (continueWatching.isNotEmpty()) addPosterRail(homeRows, "CONTINUAR ASSISTINDO", continueWatching)
-        val recent = loadRecentEntries()
-        val recentChannels = recent.filter { it.section == "Canais ao vivo" }
-        val recentMovies = recent.filter { it.section == "Filmes" }
-        val recentSeries = recent.filter { it.section == "Séries" || it.section == "Episódios" }
-        if (recentChannels.isNotEmpty()) addPosterRail(homeRows, "CANAIS VISTOS RECENTEMENTE", recentChannels)
-        if (recentMovies.isNotEmpty()) addPosterRail(homeRows, "FILMES VISTOS RECENTEMENTE", recentMovies)
-        if (recentSeries.isNotEmpty()) addPosterRail(homeRows, "SÉRIES E EPISÓDIOS RECENTES", recentSeries)
         val favorites = loadFavoriteEntries()
         if (favorites.isNotEmpty()) addPosterRail(homeRows, "MEUS FAVORITOS", favorites)
         val newReleases = entries.filter { it.section == "Filmes" || it.section == "Séries" }
@@ -780,6 +771,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun searchInputTextReset() { searchQuery = "" }
 
+    private val RECENT_FOLDER = "★ VISTOS RECENTEMENTE"
+
+    private fun recentForSection(section: String): List<MediaEntry> = loadRecentEntries().filter { item ->
+        when (section) {
+            "Canais ao vivo" -> item.section == "Canais ao vivo"
+            "Filmes" -> item.section == "Filmes"
+            "Séries" -> item.section == "Séries" || item.section == "Episódios"
+            else -> item.section == section
+        }
+    }.distinctBy { favoriteKey(it) }
+
     private fun showSection(section: String) {
         activeSection = section
         if (!::contentBox.isInitialized || fullScreenMode) return
@@ -799,6 +801,51 @@ class MainActivity : AppCompatActivity() {
             setTextColor(white); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(2), dp(9), 0, dp(9))
         }, matchWrap())
+
+        if (section != "Episódios" && query.isBlank() && selectedFolder == null) {
+            val recentCount = recentForSection(section).size
+            if (recentCount > 0) {
+                contentBox.addView(makeFolderRow("VISTOS RECENTEMENTE", recentCount, {
+                    selectedFolder = RECENT_FOLDER
+                    visibleLimit = 100
+                    showSection(section)
+                }), LinearLayout.LayoutParams(-1, dp(64)).apply { bottomMargin = dp(7) })
+            }
+        }
+
+        if (section != "Episódios" && query.isBlank() && selectedFolder == RECENT_FOLDER) {
+            contentBox.addView(makeSmallButton("‹  TODAS AS PASTAS") {
+                selectedFolder = null
+                showSection(section)
+            }, LinearLayout.LayoutParams(-1, dp(40)).apply { bottomMargin = dp(8) })
+            val recentItems = recentForSection(section)
+            val page = recentItems.take(visibleLimit)
+            page.forEach { item ->
+                val progress = getPlaybackPosition(item)
+                val duration = getPlaybackDuration(item)
+                val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                row.addView(makeMediaRow(item), LinearLayout.LayoutParams(-1, dp(72)))
+                if ((item.section == "Filmes" || item.section == "Episódios") && progress > 5000L) {
+                    val progressText = if (duration > 0L) "Continuar • ${formatTime(progress)} / ${formatTime(duration)}" else "Continuar de onde parou"
+                    row.addView(TextView(this).apply {
+                        text = progressText
+                        setTextColor(cyan); textSize = 11f
+                        setPadding(dp(12), dp(3), dp(12), dp(4))
+                        setOnClickListener { play(item) }
+                    }, matchWrap())
+                }
+                contentBox.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
+            }
+            if (recentItems.size > page.size) contentBox.addView(makeFolderRow("CARREGAR MAIS", recentItems.size - page.size, {
+                visibleLimit += 100
+                showSection(section)
+            }), LinearLayout.LayoutParams(-1, dp(58)))
+            if (recentItems.isEmpty()) contentBox.addView(TextView(this).apply {
+                text = "Você ainda não assistiu a conteúdos desta seção."
+                setTextColor(muted); setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
+            }, matchWrap())
+            return
+        }
 
         if (section == "Episódios") {
             val series = activeSeriesForEpisodes
