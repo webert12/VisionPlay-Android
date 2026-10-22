@@ -1,0 +1,12 @@
+VISION PLAY TV — V16: CATEGORIAS VERTICAIS + CONTEÚDO EM GRADE
+
+Navegação ajustada conforme solicitado:
+- Ao abrir Canais, Filmes ou Séries, as categorias aparecem como blocos horizontais empilhados, um abaixo do outro.
+- Os blocos de categorias mostram nome, quantidade de conteúdos e logo quando disponível.
+- Em Canais, as categorias são agrupadas por emissora e região quando o nome do canal permite identificar isso.
+- Em Séries, as categorias de plataformas aparecem em lista vertical; ao selecionar uma plataforma, os títulos são exibidos em grade.
+- Em Filmes, as categorias do servidor aparecem em lista vertical; ao selecionar uma categoria, os filmes aparecem em grade.
+- Dentro da categoria selecionada, os conteúdos continuam em grade de três colunas.
+- Mantém o histórico de vistos recentes por seção e a navegação existente.
+
+A compilação do APK precisa ser validada pelo GitHub Actions. A estrutura e integridade do ZIP foram verificadas.

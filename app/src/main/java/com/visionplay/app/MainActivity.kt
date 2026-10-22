@@ -890,11 +890,30 @@ class MainActivity : AppCompatActivity() {
                 else if (a.value.size != b.value.size) b.value.size.compareTo(a.value.size)
                 else a.key.compareTo(b.key, ignoreCase = true)
             })
-            addBlockGrid(contentBox, folders.map { folderEntry ->
-                makeFolderBlock(folderEntry.key, folderEntry.value.size, folderEntry.value.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl.orEmpty()) {
-                    selectedFolder = folderEntry.key; visibleLimit = 100; showSection(section)
-                }
-            })
+            // A tela inicial da seção mostra as categorias em blocos verticais.
+            // A grade de três colunas só aparece depois que o usuário abre uma categoria.
+            folders.forEach { folderEntry ->
+                val folderName = folderEntry.key
+                val folderItems = folderEntry.value
+                val logo = folderItems.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl.orEmpty()
+                contentBox.addView(
+                    makeFolderRow(folderName, folderItems.size, {
+                        selectedFolder = folderName
+                        visibleLimit = 100
+                        showSection(section)
+                    }, logo).apply {
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(panel)
+                            cornerRadius = dp(12).toFloat()
+                            setStroke(dp(1), Color.rgb(35, 72, 108))
+                        }
+                        isFocusable = true
+                    },
+                    LinearLayout.LayoutParams(-1, dp(68)).apply {
+                        setMargins(dp(2), dp(3), dp(2), dp(5))
+                    }
+                )
+            }
             return
         }
         if (query.isBlank() && selectedFolder != null) {
