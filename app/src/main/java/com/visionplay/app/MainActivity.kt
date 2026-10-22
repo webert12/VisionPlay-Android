@@ -27,8 +27,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
-import androidx.media3.common.C
-import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -156,9 +154,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun initializePlayer() {
         player = ExoPlayer.Builder(this).build().also { exo ->
-            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-                .setPreferredAudioLanguage("pt-BR")
-                .build()
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     runOnUiThread { toast("Falha na reprodução. Confira o link, a conexão e o formato do fluxo.") }
@@ -1027,7 +1022,6 @@ class MainActivity : AppCompatActivity() {
             setStroke(dp(1), Color.rgb(35, 72, 108))
         }
         isFocusable = true
-        applyTvFocus(this)
         val logo = ImageView(this@MainActivity).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -1070,7 +1064,6 @@ class MainActivity : AppCompatActivity() {
             setColor(panel); cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.rgb(31, 55, 80))
         }
         isFocusable = true
-        applyTvFocus(this)
         val poster = ImageView(this@MainActivity).apply {
             scaleType = if (item.section == "Canais ao vivo") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
             setPadding(if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0)
@@ -1112,7 +1105,7 @@ class MainActivity : AppCompatActivity() {
         if (posterUrl.isNotBlank()) loadPoster(posterUrl, image) else image.setImageResource(android.R.drawable.ic_menu_gallery)
         addView(TextView(this@MainActivity).apply { text = name; setTextColor(white); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(3)) }, matchWrap())
         addView(TextView(this@MainActivity).apply { text = "$count episódios"; setTextColor(cyan); textSize = 10f; gravity = Gravity.CENTER }, matchWrap())
-        isFocusable = true; applyTvFocus(this); setOnClickListener { action() }
+        isFocusable = true; setOnClickListener { action() }
     }
 
     private fun makeSeasonCard(name: String, count: Int, posterUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
@@ -1131,7 +1124,6 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(TextView(this@MainActivity).apply { text = "›"; setTextColor(cyan); textSize = 28f }, matchWrap())
         isFocusable = true
-        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
@@ -1601,7 +1593,6 @@ class MainActivity : AppCompatActivity() {
         controls.addView(makeSmallButton("↶ 15s") { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0L)) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("Ⅱ / ▶") { player?.let { if (it.isPlaying) it.pause() else it.play() } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("15s ↷") { player?.let { exo -> exo.seekTo((exo.currentPosition + 15000).coerceAtMost(exo.duration.coerceAtLeast(0L))) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
-        controls.addView(makeSmallButton("ÁUDIO ⚙") { showAudioTrackSelector() }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton(if (item?.section == "Canais ao vivo") "PRÓX. CANAL  ›" else "PRÓXIMO  ›") { playNext() }, LinearLayout.LayoutParams(0, dp(44), 1.2f))
         overlay.addView(controls, matchWrap())
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -1760,72 +1751,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun fieldParams() = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) }
 
-    /** Realça o foco do controle remoto com contorno ciano e fundo contrastante. */
-    private fun applyTvFocus(view: View) {
-        view.isFocusable = true
-        view.isFocusableInTouchMode = false
-        view.setOnFocusChangeListener { focusedView, hasFocus ->
-            focusedView.foreground = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.TRANSPARENT)
-                cornerRadius = dp(12).toFloat()
-                setStroke(dp(if (hasFocus) 3 else 1), if (hasFocus) Color.rgb(0, 220, 255) else Color.argb(80, 100, 150, 190))
-            }
-            focusedView.elevation = if (hasFocus) dp(8).toFloat() else 0f
-        }
-    }
-
-    /** Lista somente as faixas de áudio realmente fornecidas pelo vídeo atual. */
-    private fun showAudioTrackSelector() {
-        val exo = player ?: run { toast("O player não está disponível."); return }
-        val tracks = mutableListOf<Pair<androidx.media3.common.TrackGroup, Int>>()
-        val labels = mutableListOf<String>()
-        exo.currentTracks.groups.forEach { group ->
-            if (group.type == C.TRACK_TYPE_AUDIO) {
-                for (i in 0 until group.length) {
-                    val format = group.getTrackFormat(i)
-                    val language = format.language?.takeIf { it.isNotBlank() && it != "und" }
-                    val label = format.label?.takeIf { it.isNotBlank() }
-                    val bitrate = if (format.bitrate > 0) " • ${format.bitrate / 1000} kbps" else ""
-                    val description = listOfNotNull(label, language?.uppercase()).distinct().joinToString(" — ")
-                        .ifBlank { "Faixa de áudio ${labels.size + 1}" } + bitrate
-                    labels.add(description)
-                    tracks.add(group.mediaTrackGroup to i)
-                }
-            }
-        }
-        if (tracks.isEmpty()) {
-            toast("Este conteúdo não informou outras faixas de áudio.")
-            return
-        }
-        val selected = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-            .flatMap { group -> (0 until group.length).filter { group.isTrackSelected(it) }.map { group.mediaTrackGroup to it } }
-        val checked = tracks.indexOfFirst { candidate -> selected.any { it.first == candidate.first && it.second == candidate.second } }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Escolher áudio")
-            .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
-                val choice = tracks[which]
-                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                    .addOverride(TrackSelectionOverride(choice.first, listOf(choice.second)))
-                    .build()
-                toast("Áudio alterado: ${labels[which]}")
-                dialog.dismiss()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-    }
-
     private fun makeButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 13f; setTextColor(white)
         backgroundTintList = android.content.res.ColorStateList.valueOf(blue)
-        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
     private fun makeSmallButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 11f; setTextColor(white)
         backgroundTintList = android.content.res.ColorStateList.valueOf(panel2)
-        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
