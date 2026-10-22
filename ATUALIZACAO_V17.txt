@@ -1,0 +1,9 @@
+VISION PLAY TV — ATUALIZAÇÃO V17
+
+1. Navegação por controle remoto: foco mais visível com contorno ciano forte e elevação nos botões e cartões principais.
+2. Reprodução: botão ÁUDIO no painel do player para escolher uma das faixas de áudio disponibilizadas pelo próprio vídeo/servidor.
+3. Preferência inicial de áudio pt-BR quando essa faixa existir; caso contrário, o player usa uma faixa disponível.
+
+Observações:
+- O seletor só mostra faixas de áudio realmente presentes no fluxo. Ele não cria dublagens que o servidor não oferece.
+- Alterações preparadas no código-fonte. A compilação deve ser confirmada pelo GitHub Actions após o envio.
