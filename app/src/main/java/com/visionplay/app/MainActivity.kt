@@ -6,6 +6,13 @@ import android.graphics.Typeface
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.content.pm.PackageManager
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -27,6 +34,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -154,6 +163,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun initializePlayer() {
         player = ExoPlayer.Builder(this).build().also { exo ->
+            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                .setPreferredAudioLanguage("pt-BR")
+                .build()
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     runOnUiThread { toast("Falha na reprodução. Confira o link, a conexão e o formato do fluxo.") }
@@ -511,6 +523,7 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.DEFAULT_BOLD; letterSpacing = .03f
         }, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(makeSmallButton("↻") { refreshCatalogManually() })
+        header.addView(makeSmallButton("ATUALIZAR") { checkForAppUpdate() })
         header.addView(makeSmallButton("CONTA") { stopPlayback(); showLogin() })
         root.addView(header, matchWrap())
 
@@ -576,6 +589,162 @@ class MainActivity : AppCompatActivity() {
         root.addView(homeScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
+
+    private fun checkForAppUpdate() {
+        toast("Verificando atualizações do Vision Play TV...")
+        io.execute {
+            var latestTag = ""
+            var releaseUrl = "https://github.com/webert12/VisionPlay-Android/releases/latest"
+            var apkUrl = ""
+            var errorMessage: String? = null
+            try {
+                val connection = (URL("https://api.github.com/repos/webert12/VisionPlay-Android/releases/latest").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("User-Agent", "VisionPlayTV-Android")
+                }
+                try {
+                    if (connection.responseCode in 200..299) {
+                        val json = JsonParser.parseReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8)).asJsonObject
+                        latestTag = json.get("tag_name")?.asString ?: ""
+                        releaseUrl = json.get("html_url")?.asString ?: releaseUrl
+                        val assets = json.getAsJsonArray("assets")
+                        if (assets != null) {
+                            for (asset in assets) {
+                                val item = asset.asJsonObject
+                                val name = item.get("name")?.asString ?: ""
+                                if (name.endsWith(".apk", ignoreCase = true)) {
+                                    apkUrl = item.get("browser_download_url")?.asString ?: ""
+                                    if (apkUrl.isNotBlank()) break
+                                }
+                            }
+                        }
+                    } else if (connection.responseCode == 404) {
+                        errorMessage = "Ainda não há uma versão publicada em Releases no GitHub."
+                    } else {
+                        errorMessage = "Não foi possível consultar as atualizações agora. Tente novamente mais tarde."
+                    }
+                } finally { connection.disconnect() }
+            } catch (_: Exception) {
+                errorMessage = "Sem conexão para consultar atualizações. Confira a internet e tente novamente."
+            }
+            runOnUiThread {
+                if (errorMessage != null) {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Atualizações")
+                        .setMessage(errorMessage)
+                        .setPositiveButton("OK", null)
+                        .show()
+                    return@runOnUiThread
+                }
+                val installedVersion = packageVersionName()
+                val remoteVersion = latestTag.removePrefix("v")
+                if (remoteVersion.isNotBlank() && remoteVersion != installedVersion) {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Nova versão disponível")
+                        .setMessage("Versão instalada: v$installedVersion\nVersão disponível: $latestTag\n\nO Android solicitará sua confirmação para instalar a atualização.")
+                        .setNegativeButton("Depois", null)
+                        .setNeutralButton("Ver release") { _, _ ->
+                            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))) }
+                            catch (_: Exception) { toast("Não foi possível abrir a página da atualização.") }
+                        }
+                        .setPositiveButton("ATUALIZAR AGORA", null)
+                        .create().also { dialog ->
+                            dialog.setOnShowListener {
+                                dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                                    if (apkUrl.isBlank()) {
+                                        toast("Esta versão não contém APK anexado. Abrindo a página de Releases.")
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
+                                        dialog.dismiss()
+                                    } else {
+                                        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                                        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).text = "BAIXANDO..."
+                                        downloadAndInstallUpdate(apkUrl, releaseUrl, dialog)
+                                    }
+                                }
+                            }
+                            dialog.show()
+                        }
+                } else {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Vision Play TV atualizado")
+                        .setMessage("Você está usando a versão v$installedVersion.\n\nSe uma nova versão acabou de ser publicada, tente novamente em alguns instantes.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun downloadAndInstallUpdate(apkUrl: String, releaseUrl: String, dialog: androidx.appcompat.app.AlertDialog) {
+        io.execute {
+            var downloadedApk: File? = null
+            var failure: String? = null
+            try {
+                val connection = (URL(apkUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "VisionPlayTV-Android")
+                }
+                try {
+                    if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
+                    val target = File(cacheDir, "visionplay-update.apk")
+                    connection.inputStream.use { input -> FileOutputStream(target).use { output -> input.copyTo(output) } }
+                    if (target.length() < 100_000) throw IllegalStateException("O arquivo baixado parece incompleto.")
+                    downloadedApk = target
+                } finally { connection.disconnect() }
+            } catch (e: Exception) {
+                failure = e.message ?: "Falha ao baixar o APK."
+            }
+            runOnUiThread {
+                dialog.dismiss()
+                val apk = downloadedApk
+                if (apk == null) {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Não foi possível baixar")
+                        .setMessage("${failure ?: "Falha no download."}\n\nVocê pode abrir a página oficial e baixar o APK manualmente.")
+                        .setNegativeButton("Fechar", null)
+                        .setPositiveButton("Abrir Releases") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))) }
+                        .show()
+                    return@runOnUiThread
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Permitir instalação da atualização")
+                        .setMessage("Para instalar o APK baixado, permita que o Vision Play TV instale atualizações nesta tela do Android. Depois volte ao app e toque em ATUALIZAR novamente.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Abrir configuração") { _, _ ->
+                            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) }
+                            catch (_: Exception) { toast("Abra as configurações do Android e permita instalar apps desta fonte.") }
+                        }
+                        .show()
+                    return@runOnUiThread
+                }
+                try {
+                    val apkUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(installIntent)
+                } catch (_: Exception) {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("APK baixado")
+                        .setMessage("O APK foi baixado, mas não foi possível abrir o instalador automaticamente. Abra o arquivo visionplay-update.apk na pasta de cache do app ou use a página de Releases.")
+                        .setPositiveButton("Abrir Releases") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))) }
+                        .setNegativeButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun packageVersionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "1.8.0"
+    } catch (_: Exception) { "1.8.0" }
 
     private fun refreshCatalogManually() {
         if (isLoading) { toast("Aguarde a operação atual terminar."); return }
@@ -1022,6 +1191,7 @@ class MainActivity : AppCompatActivity() {
             setStroke(dp(1), Color.rgb(35, 72, 108))
         }
         isFocusable = true
+        applyTvFocus(this)
         val logo = ImageView(this@MainActivity).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -1064,6 +1234,7 @@ class MainActivity : AppCompatActivity() {
             setColor(panel); cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.rgb(31, 55, 80))
         }
         isFocusable = true
+        applyTvFocus(this)
         val poster = ImageView(this@MainActivity).apply {
             scaleType = if (item.section == "Canais ao vivo") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
             setPadding(if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0, if (item.section == "Canais ao vivo") dp(8) else 0)
@@ -1105,7 +1276,7 @@ class MainActivity : AppCompatActivity() {
         if (posterUrl.isNotBlank()) loadPoster(posterUrl, image) else image.setImageResource(android.R.drawable.ic_menu_gallery)
         addView(TextView(this@MainActivity).apply { text = name; setTextColor(white); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(3)) }, matchWrap())
         addView(TextView(this@MainActivity).apply { text = "$count episódios"; setTextColor(cyan); textSize = 10f; gravity = Gravity.CENTER }, matchWrap())
-        isFocusable = true; setOnClickListener { action() }
+        isFocusable = true; applyTvFocus(this); setOnClickListener { action() }
     }
 
     private fun makeSeasonCard(name: String, count: Int, posterUrl: String, action: () -> Unit): View = LinearLayout(this).apply {
@@ -1124,6 +1295,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(TextView(this@MainActivity).apply { text = "›"; setTextColor(cyan); textSize = 28f }, matchWrap())
         isFocusable = true
+        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
@@ -1593,6 +1765,7 @@ class MainActivity : AppCompatActivity() {
         controls.addView(makeSmallButton("↶ 15s") { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0L)) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("Ⅱ / ▶") { player?.let { if (it.isPlaying) it.pause() else it.play() } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("15s ↷") { player?.let { exo -> exo.seekTo((exo.currentPosition + 15000).coerceAtMost(exo.duration.coerceAtLeast(0L))) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
+        controls.addView(makeSmallButton("ÁUDIO ⚙") { showAudioTrackSelector() }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton(if (item?.section == "Canais ao vivo") "PRÓX. CANAL  ›" else "PRÓXIMO  ›") { playNext() }, LinearLayout.LayoutParams(0, dp(44), 1.2f))
         overlay.addView(controls, matchWrap())
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -1751,15 +1924,72 @@ class MainActivity : AppCompatActivity() {
 
     private fun fieldParams() = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) }
 
+    /** Realça o foco do controle remoto com contorno ciano e fundo contrastante. */
+    private fun applyTvFocus(view: View) {
+        view.isFocusable = true
+        view.isFocusableInTouchMode = false
+        view.setOnFocusChangeListener { focusedView, hasFocus ->
+            focusedView.foreground = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                cornerRadius = dp(12).toFloat()
+                setStroke(dp(if (hasFocus) 3 else 1), if (hasFocus) Color.rgb(0, 220, 255) else Color.argb(80, 100, 150, 190))
+            }
+            focusedView.elevation = if (hasFocus) dp(8).toFloat() else 0f
+        }
+    }
+
+    /** Lista somente as faixas de áudio realmente fornecidas pelo vídeo atual. */
+    private fun showAudioTrackSelector() {
+        val exo = player ?: run { toast("O player não está disponível."); return }
+        val tracks = mutableListOf<Pair<androidx.media3.common.TrackGroup, Int>>()
+        val labels = mutableListOf<String>()
+        exo.currentTracks.groups.forEach { group ->
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val language = format.language?.takeIf { it.isNotBlank() && it != "und" }
+                    val label = format.label?.takeIf { it.isNotBlank() }
+                    val bitrate = if (format.bitrate > 0) " • ${format.bitrate / 1000} kbps" else ""
+                    val description = listOfNotNull(label, language?.uppercase()).distinct().joinToString(" — ")
+                        .ifBlank { "Faixa de áudio ${labels.size + 1}" } + bitrate
+                    labels.add(description)
+                    tracks.add(group.mediaTrackGroup to i)
+                }
+            }
+        }
+        if (tracks.isEmpty()) {
+            toast("Este conteúdo não informou outras faixas de áudio.")
+            return
+        }
+        val selected = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            .flatMap { group -> (0 until group.length).filter { group.isTrackSelected(it) }.map { group.mediaTrackGroup to it } }
+        val checked = tracks.indexOfFirst { candidate -> selected.any { it.first == candidate.first && it.second == candidate.second } }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Escolher áudio")
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                val choice = tracks[which]
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .addOverride(TrackSelectionOverride(choice.first, listOf(choice.second)))
+                    .build()
+                toast("Áudio alterado: ${labels[which]}")
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
     private fun makeButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 13f; setTextColor(white)
         backgroundTintList = android.content.res.ColorStateList.valueOf(blue)
+        applyTvFocus(this)
         setOnClickListener { action() }
     }
 
     private fun makeSmallButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 11f; setTextColor(white)
         backgroundTintList = android.content.res.ColorStateList.valueOf(panel2)
+        applyTvFocus(this)
         setOnClickListener { action() }
     }
 

@@ -1,0 +1,9 @@
+VISION PLAY TV — V18
+
+- Adicionado botão ATUALIZAR na tela inicial para consultar a versão mais recente do GitHub Releases.
+- Ao detectar uma tag de versão diferente, o aplicativo mostra a versão instalada e a nova versão e oferece abrir a página oficial da atualização.
+- Adicionado workflow release-apk.yml para compilar APK release assinado e publicar automaticamente no GitHub Releases a cada push na branch main, depois de cadastrar os quatro Secrets de assinatura.
+- Configuração Gradle preparada para assinatura de release e versionamento com número da execução do GitHub Actions.
+- Incluído guia de configuração da assinatura permanente no Termux.
+
+Atenção: a compilação não foi executada neste ambiente, pois o Gradle/Android SDK não está instalado. O workflow precisa ser validado no GitHub Actions. A publicação automática só funcionará depois de cadastrar os Secrets.

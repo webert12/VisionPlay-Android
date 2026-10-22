@@ -11,13 +11,26 @@ android {
         applicationId = "com.visionplay.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.7.0"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "10").toIntOrNull() ?: 10
+        versionName = "1.8.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+    }
+
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("VISIONPLAY_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("VISIONPLAY_STORE_PASSWORD")
+                keyAlias = System.getenv("VISIONPLAY_KEY_ALIAS")
+                keyPassword = System.getenv("VISIONPLAY_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

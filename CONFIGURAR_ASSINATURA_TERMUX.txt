@@ -1,0 +1,42 @@
+VISION PLAY TV — CONFIGURAÇÃO DA ASSINATURA PERMANENTE
+
+IMPORTANTE
+- Gere esta chave uma única vez e guarde uma cópia segura do arquivo visionplay-release.jks e das senhas.
+- Nunca envie o arquivo .jks para o GitHub, para o ZIP do projeto ou para conversas.
+- Não gere outra chave para futuras versões: o Android exige a mesma assinatura para atualizar o app instalado.
+
+1) No Termux, instale o Java e gere a chave:
+
+pkg update -y
+pkg install openjdk-17 -y
+keytool -genkeypair -v -keystore ~/visionplay-release.jks -alias visionplay -keyalg RSA -keysize 2048 -validity 10000
+
+O keytool pedirá uma senha do armazenamento e dados do certificado. Guarde a senha. Para simplificar, use a mesma senha quando ele perguntar a senha da chave.
+
+2) Gere o texto Base64 que será cadastrado como Secret no GitHub:
+
+base64 -w 0 ~/visionplay-release.jks > ~/visionplay-keystore-base64.txt
+
+Veja o conteúdo para copiar:
+
+cat ~/visionplay-keystore-base64.txt
+
+Copie TODO o texto mostrado. Ele é longo. Não o envie para o chat nem publique em arquivos do projeto.
+
+3) No GitHub, abra o repositório webert12/VisionPlay-Android:
+Settings > Secrets and variables > Actions > New repository secret
+
+Crie estes quatro Secrets:
+
+VISIONPLAY_KEYSTORE_BASE64 = todo o texto do arquivo visionplay-keystore-base64.txt
+VISIONPLAY_STORE_PASSWORD = a senha do armazenamento JKS
+VISIONPLAY_KEY_ALIAS = visionplay
+VISIONPLAY_KEY_PASSWORD = a senha da chave (use a mesma senha do armazenamento, se assim configurou)
+
+4) Depois de cadastrar os quatro Secrets, envie o projeto atualizado para a branch main. O workflow "Build and publish Vision Play TV update" irá compilar e publicar a versão em Releases.
+
+OBSERVAÇÕES
+- A configuração inicial dos Secrets é manual e só precisa ser feita uma vez.
+- O fluxo atual abre a página oficial da Release para baixar o APK; o Android ainda pedirá confirmação da instalação.
+- Se o APK que já está instalado foi assinado com uma chave diferente, será necessária uma reinstalação inicial. Isso pode apagar dados locais do app; confirme que sabe os dados de acesso antes de desinstalar.
+- A chave privada é essencial para todas as atualizações futuras. Faça backup seguro dela.

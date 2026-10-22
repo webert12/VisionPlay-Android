@@ -1,0 +1,55 @@
+name: Build and publish Vision Play TV update
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.13'
+
+      - name: Preparar assinatura permanente
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VISIONPLAY_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Falta configurar o GitHub Secret VISIONPLAY_KEYSTORE_BASE64 e os demais secrets de assinatura."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/visionplay-release.jks"
+          echo "VISIONPLAY_KEYSTORE_PATH=$RUNNER_TEMP/visionplay-release.jks" >> "$GITHUB_ENV"
+
+      - name: Compilar APK assinado
+        env:
+          VISIONPLAY_STORE_PASSWORD: ${{ secrets.VISIONPLAY_STORE_PASSWORD }}
+          VISIONPLAY_KEY_ALIAS: ${{ secrets.VISIONPLAY_KEY_ALIAS }}
+          VISIONPLAY_KEY_PASSWORD: ${{ secrets.VISIONPLAY_KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Publicar APK na versão mais recente
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.8.${{ github.run_number }}
+          name: Vision Play TV v1.8.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          make_latest: true
+          files: app/build/outputs/apk/release/app-release.apk

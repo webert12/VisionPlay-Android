@@ -1,0 +1,18 @@
+0000000000000000000000000000000000000000 28dea646f03bd43c2e8ab87e894053b45aba21e2 VisionPlay Developer <seu-email@example.com> 1792613040 -0300	commit (initial): Cria projeto inicial VisionPlay Android
+28dea646f03bd43c2e8ab87e894053b45aba21e2 805397c3e65f71ea8f0927e755ca3bc0798ac017 VisionPlay Developer <seu-email@example.com> 1792614153 -0300	commit: Corrige conexoes HTTP para teste de listas M3U
+805397c3e65f71ea8f0927e755ca3bc0798ac017 869b58572254ebe3a73ce45356a310c963236ff5 VisionPlay Developer <seu-email@example.com> 1792615025 -0300	commit: Integra API Xtream ao Vision Play TV
+869b58572254ebe3a73ce45356a310c963236ff5 7daf48f24e919b6fb64761884f9487fee52ebfcd VisionPlay Developer <seu-email@example.com> 1792615940 -0300	commit: Atualiza Vision Play TV com catalogos completos e interface profissional
+7daf48f24e919b6fb64761884f9487fee52ebfcd 6cfa38161ba90fc299241ca12e8bb3d6b4945d39 VisionPlay Developer <seu-email@example.com> 1792616844 -0300	commit: Corrige reproducao e ordena catalogos Vision Play
+6cfa38161ba90fc299241ca12e8bb3d6b4945d39 2b09023133603a29609c0f652e061ca2cc3f757f VisionPlay Developer <seu-email@example.com> 1792617614 -0300	commit: Adiciona interface horizontal estilo streaming
+2b09023133603a29609c0f652e061ca2cc3f757f 60bfe9500e3bf472eb05f1a718ed2a3454aa12ba VisionPlay Developer <seu-email@example.com> 1792619852 -0300	commit: Atualiza interface e controles de reproducao
+60bfe9500e3bf472eb05f1a718ed2a3454aa12ba bf9174574b4516d74c4d92a55cbfefbd022087ec VisionPlay Developer <seu-email@example.com> 1792622703 -0300	commit: Corrige pacote e adiciona recursos premium
+bf9174574b4516d74c4d92a55cbfefbd022087ec 0cd6f68eea25440d8b6c66a8c760a5e62cd1acb5 VisionPlay Developer <seu-email@example.com> 1792623691 -0300	commit: Corrige temporadas episodios e rotacao horizontal
+0cd6f68eea25440d8b6c66a8c760a5e62cd1acb5 78a95e024e330899856a407e18fb7946f0778995 VisionPlay Developer <seu-email@example.com> 1792624923 -0300	commit: Adiciona historico individual e retomada de reproducao
+78a95e024e330899856a407e18fb7946f0778995 92652c11e5d43a18ad7a35090343e5e8e04e8bcb VisionPlay Developer <seu-email@example.com> 1792625336 -0300	commit: Corrige erros Kotlin da versao 11
+92652c11e5d43a18ad7a35090343e5e8e04e8bcb b69ad2942be796d8678028340cddbcbaffab40de VisionPlay Developer <seu-email@example.com> 1792626237 -0300	commit: Melhora historico e atualizacao manual dos catalogos
+b69ad2942be796d8678028340cddbcbaffab40de a6aad2515cc1c77d12d6e8d587c336602640e78a VisionPlay Developer <seu-email@example.com> 1792627371 -0300	commit: Organiza vistos recentemente por categoria
+a6aad2515cc1c77d12d6e8d587c336602640e78a a9414ca901ec43e6d9830545acee175b85ba6590 VisionPlay Developer <seu-email@example.com> 1792703895 -0300	commit: Atualiza design cinematografico V14
+a9414ca901ec43e6d9830545acee175b85ba6590 434f2941b4e496d6407d14ceaafee3fb5cfe6a3e VisionPlay Developer <seu-email@example.com> 1792704467 -0300	commit: V15 catalogo em blocos
+434f2941b4e496d6407d14ceaafee3fb5cfe6a3e a5f762b322af717bb79c1b4810866e9b5aa525c5 VisionPlay Developer <seu-email@example.com> 1792705084 -0300	commit: V16 categorias verticais e conteudo em grade
+a5f762b322af717bb79c1b4810866e9b5aa525c5 5599acd72e0d0e3fd6ea6c3c801dbdb431e98c4b VisionPlay Developer <seu-email@example.com> 1792708944 -0300	commit: Vision Play TV v17 foco TV e selecao de audio
+5599acd72e0d0e3fd6ea6c3c801dbdb431e98c4b 3d3b0f0932683f3fc0d70b322fee02d3db7de0e4 VisionPlay Developer <seu-email@example.com> 1792709240 -0300	commit: V16 categorias verticais e conteudo em grade

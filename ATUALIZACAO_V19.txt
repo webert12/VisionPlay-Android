@@ -1,0 +1,11 @@
+VISION PLAY TV — V19
+
+- Mantém os recursos e ajustes anteriores do projeto V18, incluindo destaque colorido de foco para navegação por controle remoto e seletor de faixa de áudio no player.
+- O botão ATUALIZAR consulta a última versão publicada no GitHub Releases.
+- Quando encontra uma versão diferente, procura o APK anexado à Release, baixa o arquivo e abre o instalador do Android. O usuário ainda precisa confirmar a instalação no sistema.
+- Se o Android exigir autorização para instalar apps desta fonte, o app orienta a abrir a configuração correspondente.
+- O workflow release-apk.yml publica uma Release automaticamente a cada push na branch main, desde que os quatro Secrets de assinatura estejam configurados corretamente.
+
+IMPORTANTE: o app só consegue atualizar a instalação existente se o APK novo usar o mesmo applicationId e a mesma chave de assinatura. A primeira instalação pode exigir reinstalação se o app atual tiver sido assinado com outra chave.
+
+Não foi possível executar uma compilação Android neste ambiente. Valide o resultado no GitHub Actions antes de distribuir o APK.
