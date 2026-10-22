@@ -4,6 +4,7 @@ Aplicativo Android horizontal para catálogos Xtream Codes, com reprodução via
 
 ## Funcionalidades
 - Catálogos de canais ao vivo, filmes e séries via API Xtream.
+- Catálogo com banner de destaque cinematográfico para filmes e séries, com capa, título e sinopse quando fornecida.
 - Pastas e busca por categorias.
 - Temporadas e episódios por série.
 - Detalhes e EPG quando fornecidos pelo provedor.

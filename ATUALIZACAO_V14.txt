@@ -1,0 +1,7 @@
+VISION PLAY TV — ATUALIZAÇÃO V14
+
+Esta versão parte da v13 e acrescenta um banner visual de destaque no topo dos catálogos de Filmes e Séries. O banner usa a capa e os metadados que o servidor disponibiliza, destaca um título recente quando há data de inclusão e abre a tela de detalhes ao tocar.
+
+Mantidos no projeto: layout horizontal, atualização manual no botão ↻, pastas Vistos Recentemente dentro de cada seção, favoritos, capas do provedor, temporadas/episódios, histórico e salvamento de posição para retomar filmes/episódios.
+
+Importante: imagens, sinopses, logos e programação dependem dos dados fornecidos pelo servidor. Esta atualização foi conferida quanto à estrutura do ZIP e às alterações de código, mas o APK não foi compilado neste ambiente; envie ao GitHub Actions para validar a compilação.

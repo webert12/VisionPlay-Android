@@ -791,6 +791,9 @@ class MainActivity : AppCompatActivity() {
         val filtered = if (query.isBlank()) all else all.filter {
             it.name.contains(query, true) || it.group.contains(query, true) || folderFor(it).contains(query, true)
         }
+        if (query.isBlank() && selectedFolder == null && (section == "Filmes" || section == "Séries") && filtered.isNotEmpty()) {
+            addFeaturedBanner(section, filtered)
+        }
         contentBox.addView(TextView(this).apply {
             text = when (section) {
                 "Canais ao vivo" -> "${all.size} canais disponíveis"
@@ -925,6 +928,57 @@ class MainActivity : AppCompatActivity() {
             text = "Nenhum conteúdo nesta pasta."; setTextColor(muted); textSize = 14f
             setPadding(dp(14), dp(18), dp(14), dp(18)); setBackgroundColor(panel)
         }, matchWrap())
+    }
+
+
+    private fun addFeaturedBanner(section: String, items: List<MediaEntry>) {
+        val featured = items.sortedWith(
+            compareBy<MediaEntry> { if (it.addedAt.isBlank()) 1 else 0 }
+                .thenByDescending { it.addedAt }
+        ).firstOrNull() ?: return
+        val banner = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                colors = intArrayOf(Color.rgb(17, 43, 73), Color.rgb(10, 19, 34))
+                orientation = android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), Color.rgb(35, 91, 145))
+            }
+            isFocusable = true
+            setOnClickListener { openContentDetails(featured) }
+        }
+        val poster = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(panel2)
+            contentDescription = "Capa de ${featured.name}"
+        }
+        banner.addView(poster, LinearLayout.LayoutParams(dp(94), dp(126)).apply { marginEnd = dp(13) })
+        if (featured.posterUrl.isNotBlank()) loadPoster(featured.posterUrl, poster)
+        else poster.setImageResource(android.R.drawable.ic_menu_gallery)
+        val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        details.addView(TextView(this).apply {
+            text = if (section == "Filmes") "DESTAQUE • FILMES" else "EM DESTAQUE • SÉRIES"
+            setTextColor(cyan); textSize = 10f; typeface = Typeface.DEFAULT_BOLD; letterSpacing = .08f
+        }, matchWrap())
+        details.addView(TextView(this).apply {
+            text = featured.name; setTextColor(white); textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD; maxLines = 2; setPadding(0, dp(7), 0, dp(4))
+        }, matchWrap())
+        val description = featured.plot.ifBlank {
+            listOfNotNull(featured.year.takeIf { it.isNotBlank() }, featured.group.takeIf { it.isNotBlank() })
+                .joinToString(" • ").ifBlank { "Explore o catálogo e descubra seu próximo título." }
+        }
+        details.addView(TextView(this).apply {
+            text = description; setTextColor(muted); textSize = 11f; maxLines = 3
+        }, matchWrap())
+        details.addView(TextView(this).apply {
+            text = "▶  VER DETALHES"; setTextColor(white); textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(10), 0, 0)
+        }, matchWrap())
+        banner.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+        contentBox.addView(banner, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
     }
 
     private fun seasonNumber(value: String): Int = Regex("\\d+").find(value)?.value?.toIntOrNull() ?: Int.MAX_VALUE
