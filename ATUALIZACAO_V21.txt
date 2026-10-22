@@ -1,0 +1,8 @@
+
+## V21 - Fire TV e zapping de canais
+- Seta esquerda/direita durante canal ao vivo: canal anterior/próximo.
+- Voltar uma vez durante canal ao vivo: lista de canais com vídeo reduzido à direita, mantendo a reprodução.
+- Voltar novamente: tela inicial.
+- Catálogo segue disponível para escolha pelo controle remoto.
+
+Observação: compilação e teste em Fire TV ainda precisam ser confirmados pelo GitHub Actions e dispositivo.

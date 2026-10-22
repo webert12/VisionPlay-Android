@@ -11,8 +11,8 @@ android {
         applicationId = "com.visionplay.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "10").toIntOrNull() ?: 10
-        versionName = "1.8.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "21").toIntOrNull() ?: 21
+        versionName = "1.8.${System.getenv("GITHUB_RUN_NUMBER") ?: "21"}"
     }
 
     signingConfigs {

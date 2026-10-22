@@ -112,6 +112,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedFolder: String? = null
     private var visibleLimit = 100
     private var fullScreenMode = false
+    private var channelBrowseMode = false
     private var detailScreenVisible = false
     private var playbackControlsVisible = true
     private var currentPlaying: MediaEntry? = null
@@ -1074,7 +1075,7 @@ class MainActivity : AppCompatActivity() {
                         background = android.graphics.drawable.GradientDrawable().apply {
                             setColor(panel)
                             cornerRadius = dp(12).toFloat()
-                            setStroke(dp(1), Color.rgb(35, 72, 108))
+                            setStroke(dp(1), navigationAccent())
                         }
                         isFocusable = true
                     },
@@ -1188,7 +1189,7 @@ class MainActivity : AppCompatActivity() {
         background = android.graphics.drawable.GradientDrawable().apply {
             setColor(panel)
             cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), Color.rgb(35, 72, 108))
+            setStroke(dp(1), navigationAccent())
         }
         isFocusable = true
         applyTvFocus(this)
@@ -1701,6 +1702,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPlaybackScreen() {
+        channelBrowseMode = false
         fullScreenMode = true
         playbackControlsVisible = true
         window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
@@ -1772,8 +1774,8 @@ class MainActivity : AppCompatActivity() {
         bottom.addView(TextView(this).apply {
             text = "Toque no vídeo para mostrar/ocultar controles"; textSize = 10f; setTextColor(muted)
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        bottom.addView(makeSmallButton("VOLTAR À LISTA") {
-            fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog()
+        bottom.addView(makeSmallButton(if (item?.section == "Canais ao vivo") "CANAIS" else "VOLTAR À LISTA") {
+            if (item?.section == "Canais ao vivo") showChannelBrowse() else { fullScreenMode = false; playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
         })
         overlay.addView(bottom, LinearLayout.LayoutParams(-1, dp(38)))
         frame.addView(overlay, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
@@ -1791,11 +1793,70 @@ class MainActivity : AppCompatActivity() {
         if (playbackControlsVisible) playbackHandler.removeCallbacks(playbackTicker).also { playbackHandler.post(playbackTicker) }
     }
 
-    private fun playNext() {
-        if (currentPlaybackQueue.isEmpty()) { toast("Não há outro conteúdo nesta lista."); return }
-        val next = (currentPlaybackIndex + 1).coerceAtMost(currentPlaybackQueue.lastIndex)
-        if (next == currentPlaybackIndex) { toast("Você chegou ao último conteúdo desta lista."); return }
+    private fun playNext() = playChannelOffset(1)
+
+    private fun playPrevious() = playChannelOffset(-1)
+
+    private fun playChannelOffset(offset: Int) {
+        if (currentPlaybackQueue.isEmpty()) { toast("Não há outros conteúdos nesta lista."); return }
+        val next = currentPlaybackIndex + offset
+        if (next !in currentPlaybackQueue.indices) {
+            toast(if (offset < 0) "Este é o primeiro canal da lista." else "Este é o último canal da lista.")
+            return
+        }
         play(currentPlaybackQueue[next])
+    }
+
+    /** Lista de canais com reprodução contínua em janela reduzida, estilo TV. */
+    private fun showChannelBrowse() {
+        val playing = currentPlaying ?: return
+        if (playing.section != "Canais ao vivo") { fullScreenMode = false; showCatalog(); return }
+        channelBrowseMode = true
+        fullScreenMode = false
+        playbackHandler.removeCallbacks(playbackTicker)
+        playerViewSafeDetach()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(bg); setPadding(dp(12), dp(8), dp(12), dp(8)) }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(TextView(this).apply { text = "CANAIS AO VIVO"; setTextColor(white); textSize = 19f; typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, dp(42), 1f))
+        header.addView(makeSmallButton("⌂ INÍCIO") { channelBrowseMode = false; showHome() })
+        root.addView(header, matchWrap())
+        val split = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
+        val channelList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val channelScroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; addView(channelList) }
+        val channels = entries.filter { it.section == "Canais ao vivo" && it.url.isNotBlank() }
+        channels.forEachIndexed { index, channel ->
+            val button = makeSmallButton("${if (channel.url == playing.url) "▶  " else ""}${channel.name}") { play(channel) }
+            button.gravity = Gravity.CENTER_VERTICAL
+            button.setPadding(dp(12), dp(4), dp(8), dp(4))
+            channelList.addView(button, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(3) })
+            if (channel.url == playing.url) button.post { button.requestFocus() }
+        }
+        split.addView(channelScroll, LinearLayout.LayoutParams(0, dp(0), 1.05f).apply { height = 0 })
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0) }
+        val mini = PlayerView(this).apply { useController = false; player = this@MainActivity.player; setBackgroundColor(Color.BLACK); isFocusable = false }
+        mini.setOnClickListener { fullScreenMode = true; showPlaybackScreen() }
+        right.addView(mini, LinearLayout.LayoutParams(-1, 0, 1f))
+        right.addView(TextView(this).apply { text = playing.name; setTextColor(white); textSize = 14f; maxLines = 2; setPadding(0, dp(8), 0, dp(4)) }, matchWrap())
+        right.addView(makeSmallButton("VOLTAR AO VÍDEO") { fullScreenMode = true; showPlaybackScreen() }, matchWrap())
+        split.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
+        // Weighted split with bounded list area works with Fire TV remote focus navigation.
+        channelScroll.layoutParams = LinearLayout.LayoutParams(0, -1, 1.05f)
+        root.addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+        channelScroll.post { channelList.getChildAt(currentPlaybackIndex.coerceIn(0, (channelList.childCount - 1).coerceAtLeast(0)))?.requestFocus() }
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && fullScreenMode && currentPlaying?.section == "Canais ao vivo") {
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { playPrevious(); return true }
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); return true }
+                android.view.KeyEvent.KEYCODE_BACK -> { showChannelBrowse(); return true }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun formatTime(ms: Long): String {
@@ -1924,15 +1985,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun fieldParams() = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) }
 
-    /** Realça o foco do controle remoto com contorno ciano e fundo contrastante. */
+    /** Cor de navegação: muda por seção e também por pasta/subpasta aberta. */
+    private fun navigationAccent(): Int {
+        val sectionColor = when (activeSection) {
+            "Canais ao vivo" -> Color.rgb(0, 220, 150)       // verde
+            "Filmes" -> Color.rgb(255, 166, 45)              // laranja
+            "Séries", "Episódios" -> Color.rgb(190, 105, 255) // roxo
+            else -> Color.rgb(45, 165, 255)                  // azul da inicial/configurações
+        }
+        val folder = selectedFolder
+        if (folder.isNullOrBlank() || folder == RECENT_FOLDER) return sectionColor
+        // Cada pasta mantém uma cor consistente enquanto o usuário navega nela.
+        val palette = intArrayOf(
+            Color.rgb(255, 82, 120), Color.rgb(255, 196, 61),
+            Color.rgb(65, 220, 190), Color.rgb(110, 145, 255),
+            Color.rgb(220, 105, 255), Color.rgb(255, 125, 55),
+            Color.rgb(110, 220, 95), Color.rgb(65, 200, 255)
+        )
+        return palette[(folder.lowercase().hashCode() and Int.MAX_VALUE) % palette.size]
+    }
+
+    /** Realça o foco do controle remoto com a cor da seção/pasta atual. */
     private fun applyTvFocus(view: View) {
         view.isFocusable = true
         view.isFocusableInTouchMode = false
         view.setOnFocusChangeListener { focusedView, hasFocus ->
+            val accent = navigationAccent()
             focusedView.foreground = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.TRANSPARENT)
+                setColor(if (hasFocus) Color.argb(30, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.TRANSPARENT)
                 cornerRadius = dp(12).toFloat()
-                setStroke(dp(if (hasFocus) 3 else 1), if (hasFocus) Color.rgb(0, 220, 255) else Color.argb(80, 100, 150, 190))
+                setStroke(dp(if (hasFocus) 3 else 1), if (hasFocus) accent else Color.argb(80, 100, 150, 190))
             }
             focusedView.elevation = if (hasFocus) dp(8).toFloat() else 0f
         }
@@ -2000,7 +2082,9 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in Android API")
     override fun onBackPressed() {
         when {
-            fullScreenMode -> { fullScreenMode = false; player?.pause(); playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
+            fullScreenMode && currentPlaying?.section == "Canais ao vivo" -> showChannelBrowse()
+            fullScreenMode -> { fullScreenMode = false; playbackHandler.removeCallbacks(playbackTicker); showCatalog() }
+            channelBrowseMode -> { channelBrowseMode = false; showHome() }
             detailScreenVisible -> { detailScreenVisible = false; showCatalog() }
             activeSection == "Episódios" && selectedSeason != null -> { selectedSeason = null; showSection("Episódios") }
             activeSection == "Episódios" -> { activeSection = "Séries"; selectedFolder = null; selectedSeason = null; showCatalog() }

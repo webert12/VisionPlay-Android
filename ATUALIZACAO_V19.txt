@@ -9,3 +9,7 @@ VISION PLAY TV — V19
 IMPORTANTE: o app só consegue atualizar a instalação existente se o APK novo usar o mesmo applicationId e a mesma chave de assinatura. A primeira instalação pode exigir reinstalação se o app atual tiver sido assinado com outra chave.
 
 Não foi possível executar uma compilação Android neste ambiente. Valide o resultado no GitHub Actions antes de distribuir o APK.
+
+
+VERSAO 20 - CORES DINAMICAS DE NAVEGACAO
+Cores diferentes por secao e cores consistentes por pasta/subpasta; foco do controle remoto acompanha a cor atual.
