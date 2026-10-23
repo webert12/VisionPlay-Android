@@ -845,8 +845,27 @@ class MainActivity : AppCompatActivity() {
     private fun saveRecentEntry(item: MediaEntry) {
         val prefs = getSharedPreferences("visionplay_library", MODE_PRIVATE)
         val token = historyToken(item)
-        val old = prefs.getString("recent_history", "").orEmpty().split("\n").filter { it.isNotBlank() && it != token }
-        val history = (listOf(token) + old).take(120)
+        val oldTokens = prefs.getString("recent_history", "").orEmpty().split("\n").filter { it.isNotBlank() && it != token }
+        // Keep only the newest entry per media type: one live channel, one movie, one exact episode.
+        // Episodes from different seasons are intentionally treated as the same recent category.
+        val category = when (item.section) {
+            "Canais ao vivo" -> "live"
+            "Filmes" -> "movie"
+            "Episódios", "Séries" -> "series"
+            else -> item.section
+        }
+        val history = (listOf(token) + oldTokens.filter { oldToken ->
+            val oldItem = runCatching {
+                com.google.gson.Gson().fromJson(prefs.getString("history_item_$oldToken", null), MediaEntry::class.java)
+            }.getOrNull()
+            val oldCategory = when (oldItem?.section) {
+                "Canais ao vivo" -> "live"
+                "Filmes" -> "movie"
+                "Episódios", "Séries" -> "series"
+                else -> oldItem?.section ?: ""
+            }
+            oldCategory != category
+        }).take(3)
         // Do not persist stream URLs: they contain account credentials. Rebuild them after login.
         val safeItem = item.copy(url = "")
         prefs.edit()
@@ -966,7 +985,8 @@ class MainActivity : AppCompatActivity() {
             "Séries" -> item.section == "Séries" || item.section == "Episódios"
             else -> item.section == section
         }
-    }.distinctBy { favoriteKey(it) }
+    }.distinctBy { if (section == "Séries") "latest-series-episode" else section }
+        .take(1)
 
     private fun showSection(section: String) {
         val playingSection = currentPlaying?.section
@@ -2053,11 +2073,16 @@ class MainActivity : AppCompatActivity() {
     private fun brandHeader() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        val logo = TextView(this@MainActivity).apply {
-            text = "▶"; textSize = 25f; setTextColor(white); gravity = Gravity.CENTER
-            setBackgroundColor(blue); typeface = Typeface.DEFAULT_BOLD
+        val logo = ImageView(this@MainActivity).apply {
+            setImageResource(com.visionplay.app.R.drawable.visionplay_banner_faded)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = "Vision Play TV"
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.BLACK); cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.rgb(35, 155, 255))
+            }
         }
-        addView(logo, LinearLayout.LayoutParams(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        addView(logo, LinearLayout.LayoutParams(dp(88), dp(54)).apply { marginEnd = dp(12) })
         addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@MainActivity).apply {
