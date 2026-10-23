@@ -1,6 +1,1 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#168BFF" android:pathData="M16,18 L92,18 L92,90 L16,90 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M42,32 L42,76 L77,54 Z" />
-    <path android:fillColor="#64BEFF" android:pathData="M22,24 L29,24 L29,84 L22,84 Z" />
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/visionplay_app_icon" android:gravity="center" />

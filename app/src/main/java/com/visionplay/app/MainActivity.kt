@@ -40,7 +40,9 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.stream.JsonReader
@@ -144,6 +146,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private var playbackResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+    private val resizeModeNames = listOf("AJUSTAR", "PREENCHER", "ZOOM", "ESTICAR")
+    private var resizeModeIndex = 0
+
     @Volatile private var isLoading = false
 
     // Saved profile password is encrypted with an Android Keystore AES key.
@@ -159,12 +165,18 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
+        resizeModeIndex = getSharedPreferences("visionplay_ui", MODE_PRIVATE).getInt("video_resize_mode", 0).coerceIn(0, 3)
+        playbackResizeMode = resizeModeForIndex(resizeModeIndex)
         initializePlayer()
         showLogin()
     }
 
     private fun initializePlayer() {
-        player = ExoPlayer.Builder(this).build().also { exo ->
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+        player = ExoPlayer.Builder(this).setLoadControl(loadControl).build().also { exo ->
             exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                 .setPreferredAudioLanguage("pt-BR")
                 .build()
@@ -1803,6 +1815,7 @@ class MainActivity : AppCompatActivity() {
         playerView = PlayerView(this).apply {
             useController = false
             setBackgroundColor(Color.BLACK)
+            resizeMode = playbackResizeMode
             player = this@MainActivity.player
         }
         playerView.setOnClickListener { togglePlaybackControls() }
@@ -1859,6 +1872,7 @@ class MainActivity : AppCompatActivity() {
         controls.addView(makeSmallButton("Ⅱ / ▶") { player?.let { if (it.isPlaying) it.pause() else it.play() } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("15s ↷") { player?.let { exo -> exo.seekTo((exo.currentPosition + 15000).coerceAtMost(exo.duration.coerceAtLeast(0L))) } }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton("ÁUDIO ⚙") { showAudioTrackSelector() }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) })
+        controls.addView(makeSmallButton("TELA: ${resizeModeNames[resizeModeIndex]}") { cycleVideoResizeMode() }, LinearLayout.LayoutParams(0, dp(44), 1.2f).apply { marginEnd = dp(6) })
         controls.addView(makeSmallButton(if (item?.section == "Canais ao vivo") "PRÓX. CANAL  ›" else "PRÓXIMO  ›") { playNext() }, LinearLayout.LayoutParams(0, dp(44), 1.2f))
         overlay.addView(controls, matchWrap())
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -1876,6 +1890,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         playbackHandler.removeCallbacks(playbackTicker)
         playbackHandler.post(playbackTicker)
+    }
+
+    private fun resizeModeForIndex(index: Int): Int = when (index) {
+        1 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+        2 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        3 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
+    private fun cycleVideoResizeMode() {
+        resizeModeIndex = (resizeModeIndex + 1) % resizeModeNames.size
+        playbackResizeMode = resizeModeForIndex(resizeModeIndex)
+        getSharedPreferences("visionplay_ui", MODE_PRIVATE).edit().putInt("video_resize_mode", resizeModeIndex).apply()
+        playerView?.resizeMode = playbackResizeMode
+        showPlaybackScreen()
     }
 
     private fun togglePlaybackControls() {

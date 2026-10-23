@@ -1,0 +1,8 @@
+VISION PLAY TV v28 — FUNDO OFICIAL, ÍCONE DA MARCA E AJUSTE DE TELA
+
+- O fundo de login usa a imagem original Vision Play TV Company Tecnologic enviada pelo usuário, sem espelhar uma captura da tela.
+- O ícone do launcher agora usa a arte original do banner em composição quadrada; removido o desenho genérico de play do foreground.
+- PlayerView inclui modos Ajustar, Preencher, Zoom e Esticar, com preferência salva localmente.
+- ExoPlayer usa buffer inicial menor para tentar reduzir a espera antes da reprodução. A velocidade real também depende do servidor, rede, codec e URL do stream.
+
+Validação: ZIP verificado e inspeção estática das alterações. APK e execução em dispositivo ainda precisam ser compilados/testados pelo GitHub Actions e Fire Stick/celular.
