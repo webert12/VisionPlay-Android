@@ -184,8 +184,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLogin(error: String? = null) {
         root = baseScreen()
-        val scroll = ScrollView(this)
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.gravity = Gravity.CENTER
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            clipToPadding = false
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(20), dp(24), dp(20))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.rgb(10, 16, 29))
+                cornerRadius = dp(22).toFloat()
+                setStroke(dp(1), Color.rgb(30, 67, 111))
+            }
+        }
         body.addView(brandHeader(), matchWrap())
         body.addView(TextView(this).apply {
             text = "Seu entretenimento, em um só lugar"
@@ -231,7 +245,14 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(22), 0, dp(10))
         }, matchWrap())
         scroll.addView(body)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val maxLoginWidth = dp(680)
+        val loginWidth = minOf(maxLoginWidth, screenWidth - dp(36)).coerceAtLeast(dp(280))
+        val loginHeight = minOf(screenHeight - dp(32), dp(620)).coerceAtLeast(dp(260))
+        root.addView(scroll, LinearLayout.LayoutParams(loginWidth, loginHeight).apply {
+            gravity = Gravity.CENTER
+        })
         setContentView(root)
     }
 
@@ -2075,8 +2096,8 @@ class MainActivity : AppCompatActivity() {
         gravity = Gravity.CENTER_VERTICAL
         val logo = ImageView(this@MainActivity).apply {
             setImageResource(com.visionplay.app.R.drawable.visionplay_banner_faded)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            contentDescription = "Vision Play TV"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Logotipo oficial Vision Play TV"
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.BLACK); cornerRadius = dp(10).toFloat()
                 setStroke(dp(1), Color.rgb(35, 155, 255))

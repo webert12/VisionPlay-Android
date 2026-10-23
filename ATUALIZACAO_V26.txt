@@ -1,0 +1,7 @@
+Vision Play TV v26
+
+- Tela de login centralizada e com largura limitada para celular, TV e telas maiores.
+- Campos de login menores e organizados em um painel escuro profissional.
+- Ícone do aplicativo baseado no banner oficial enviado pelo usuário, em vez do ícone genérico de play.
+
+Validação: pacote ZIP criado; compilação Android e testes em dispositivos ainda precisam ser executados.

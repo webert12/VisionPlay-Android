@@ -7,8 +7,8 @@
     <application
         android:allowBackup="false"
         android:label="Vision Play TV"
-        android:icon="@drawable/ic_launcher_legacy"
-        android:roundIcon="@drawable/ic_launcher_legacy"
+        android:icon="@drawable/visionplay_app_icon"
+        android:roundIcon="@drawable/visionplay_app_icon"
         android:theme="@style/Theme.VisionPlay"
         android:usesCleartextTraffic="true">
         <activity
