@@ -1,0 +1,9 @@
+VISION PLAY TV v27 — LOGIN PROFISSIONAL
+
+- Tela de login com banner Vision Play TV escurecido ocupando o fundo.
+- Painel central compacto, borda azul e campos menores com espaçamento uniforme.
+- Botão ENTRAR compacto centralizado logo abaixo da senha.
+- Importar M3U em botão pequeno no canto inferior direito do painel.
+- Ícone adaptativo e ícone legado passam a usar a arte da marca fornecida pelo usuário.
+
+Observação: o pacote foi validado como ZIP. A compilação e os testes visuais em Android/Fire TV ainda precisam ser executados.

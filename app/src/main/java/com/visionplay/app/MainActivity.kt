@@ -185,71 +185,94 @@ class MainActivity : AppCompatActivity() {
     private fun showLogin(error: String? = null) {
         root = baseScreen()
         root.gravity = Gravity.CENTER
+        root.setPadding(dp(14), dp(12), dp(14), dp(12))
+        // Full-screen branded background; image is darkened so the form remains readable.
+        val bgImage = android.graphics.drawable.BitmapDrawable(resources,
+            android.graphics.BitmapFactory.decodeResource(resources, R.drawable.visionplay_login_background))
+        bgImage.alpha = 105
+        root.background = android.graphics.drawable.LayerDrawable(arrayOf(
+            android.graphics.drawable.ColorDrawable(Color.rgb(3, 7, 17)), bgImage
+        ))
+
         val scroll = ScrollView(this).apply {
             isFillViewport = false
             clipToPadding = false
-            setPadding(0, dp(8), 0, dp(8))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setPadding(dp(4), dp(8), dp(4), dp(8))
         }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(20), dp(24), dp(20))
+            setPadding(dp(22), dp(20), dp(22), dp(18))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.rgb(10, 16, 29))
-                cornerRadius = dp(22).toFloat()
-                setStroke(dp(1), Color.rgb(30, 67, 111))
+                setColor(Color.argb(242, 7, 14, 29))
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(2), Color.rgb(35, 155, 255))
             }
+            elevation = dp(12).toFloat()
         }
         body.addView(brandHeader(), matchWrap())
         body.addView(TextView(this).apply {
-            text = "Seu entretenimento, em um só lugar"
-            setTextColor(muted); textSize = 15f
-            setPadding(0, dp(6), 0, dp(18))
+            text = "Entre para acessar seu entretenimento"
+            setTextColor(Color.rgb(190, 205, 225)); textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(18))
         }, matchWrap())
         val saved = loadSavedAccount()
         if (saved != null) {
-            body.addView(makeButton("👤  CONTINUAR COMO ${saved.second}") {
+            body.addView(makeButton("CONTINUAR COMO ${saved.second}") {
                 connectXtream(saved.first, saved.second, saved.third)
-            }, LinearLayout.LayoutParams(-1, dp(54)).apply { bottomMargin = dp(18) })
+            }, LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(14) })
         }
         body.addView(sectionLabel("CONECTAR AO SEU SERVIDOR"), matchWrap())
-        urlInput = input("URL base ou link completo Xtream/M3U", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        urlInput = input("URL base ou link Xtream / M3U", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         userInput = input("Usuário", InputType.TYPE_CLASS_TEXT)
         passInput = input("Senha", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
-        body.addView(urlInput, fieldParams())
-        body.addView(userInput, fieldParams())
-        body.addView(passInput, fieldParams())
-        body.addView(makeButton("CONECTAR E CARREGAR CONTEÚDOS") {
-            val raw = urlInput.text.toString().trim()
-            val user = userInput.text.toString().trim()
-            val pass = passInput.text.toString()
-            if (raw.isBlank() || user.isBlank() || pass.isBlank()) {
-                toast("Preencha a URL, o usuário e a senha.")
-                return@makeButton
-            }
-            connectXtream(raw, user, pass)
-        }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(10) })
-        body.addView(makeButton("IMPORTAR ARQUIVO M3U") {
-            pickFile.launch(arrayOf("*/*", "text/*", "application/octet-stream"))
-        }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(10) })
+        body.addView(urlInput, fieldParams().apply { height = dp(46); bottomMargin = dp(9) })
+        body.addView(userInput, fieldParams().apply { height = dp(46); bottomMargin = dp(9) })
+        body.addView(passInput, fieldParams().apply { height = dp(46); bottomMargin = dp(12) })
+
+        // Compact login action directly under the password field.
+        body.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            addView(makeButton("ENTRAR") {
+                val raw = urlInput.text.toString().trim()
+                val user = userInput.text.toString().trim()
+                val pass = passInput.text.toString()
+                if (raw.isBlank() || user.isBlank() || pass.isBlank()) {
+                    toast("Preencha a URL, o usuário e a senha.")
+                    return@makeButton
+                }
+                connectXtream(raw, user, pass)
+            }, LinearLayout.LayoutParams(dp(150), dp(44)))
+        }, LinearLayout.LayoutParams(-1, dp(48)))
+
         if (!error.isNullOrBlank()) {
             body.addView(TextView(this).apply {
                 text = error
-                setTextColor(Color.rgb(255, 130, 130)); textSize = 13f
-                setPadding(0, dp(14), 0, dp(6))
+                setTextColor(Color.rgb(255, 130, 130)); textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(4))
             }, matchWrap())
         }
-        body.addView(TextView(this).apply {
-            text = "Sua conta pode ficar salva neste aparelho. A senha é protegida com criptografia local; prefira HTTPS quando disponível."
-            setTextColor(muted); textSize = 12f
-            setPadding(0, dp(22), 0, dp(10))
-        }, matchWrap())
+        body.addView(LinearLayout(this).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = "Conta protegida neste aparelho"
+                setTextColor(Color.rgb(125, 145, 172)); textSize = 10f
+                gravity = Gravity.CENTER_VERTICAL
+            }, LinearLayout.LayoutParams(0, dp(34), 1f))
+            addView(makeSmallButton("IMPORTAR M3U") {
+                pickFile.launch(arrayOf("*/*", "text/*", "application/octet-stream"))
+            })
+        }, LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(5) })
+
         scroll.addView(body)
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
-        val maxLoginWidth = dp(680)
-        val loginWidth = minOf(maxLoginWidth, screenWidth - dp(36)).coerceAtLeast(dp(280))
-        val loginHeight = minOf(screenHeight - dp(32), dp(620)).coerceAtLeast(dp(260))
+        val maxLoginWidth = dp(520)
+        val loginWidth = minOf(maxLoginWidth, screenWidth - dp(32)).coerceAtLeast(dp(270))
+        val loginHeight = minOf(screenHeight - dp(24), dp(560)).coerceAtLeast(dp(250))
         root.addView(scroll, LinearLayout.LayoutParams(loginWidth, loginHeight).apply {
             gravity = Gravity.CENTER
         })
