@@ -1,0 +1,10 @@
+VISION PLAY TV v24 — BANNER, NAVEGAÇÃO E RETOMADA
+
+- Banner Vision Play TV aplicado como fundo escurecido na tela inicial.
+- Cor de foco da navegação padronizada em azul.
+- Voltar à tela inicial encerra a reprodução atual.
+- Ao trocar de seção, a reprodução da seção anterior é parada.
+- OK/Enter durante a reprodução oculta imediatamente os controles quando estão visíveis.
+- Continuar assistindo limita a lista ao último filme e ao último episódio retomável, sem listar todos os episódios/temporadas.
+
+IMPORTANTE: alterações de código preparadas; compilação e testes em dispositivo ainda precisam ser realizados no GitHub Actions e no Fire Stick/Android.

@@ -2,6 +2,7 @@ package com.visionplay.app
 
 import android.graphics.Color
 import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.Typeface
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -498,6 +499,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
+        // Returning to home always stops the current stream and clears the mini-player.
+        stopPlayback()
+        currentPlaying = null
+        channelBrowseMode = false
         detailScreenVisible = false
         fullScreenMode = false
         playbackHandler.removeCallbacks(playbackTicker)
@@ -505,6 +510,10 @@ class MainActivity : AppCompatActivity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         root = baseScreen()
+        runCatching {
+            val bitmap = BitmapFactory.decodeResource(resources, R.drawable.visionplay_banner_faded)
+            root.background = BitmapDrawable(resources, bitmap).apply { alpha = 255 }
+        }
         root.setPadding(dp(20), dp(14), dp(20), dp(14))
 
         val header = LinearLayout(this).apply {
@@ -885,8 +894,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadContinueWatchingEntries(): List<MediaEntry> = loadRecentEntries().filter { item ->
-        (item.section == "Filmes" || item.section == "Episódios") && getPlaybackPosition(item) > 5000L && item.url.isNotBlank()
+    private fun loadContinueWatchingEntries(): List<MediaEntry> {
+        val eligible = loadRecentEntries().filter { item ->
+            (item.section == "Filmes" || item.section == "Episódios") &&
+                getPlaybackPosition(item) > 5000L && item.url.isNotBlank()
+        }
+        // Keep only the most recently watched movie and the exact last episode, not every episode/season.
+        return eligible.distinctBy { it.section }.take(2)
     }
 
     private fun loadPlaybackEntry(): MediaEntry? = loadContinueWatchingEntries().firstOrNull()
@@ -955,6 +969,13 @@ class MainActivity : AppCompatActivity() {
     }.distinctBy { favoriteKey(it) }
 
     private fun showSection(section: String) {
+        val playingSection = currentPlaying?.section
+        val targetSection = section
+        if (playingSection != null && playingSection != targetSection &&
+            !(playingSection == "Episódios" && targetSection == "Séries")) {
+            stopPlayback()
+            currentPlaying = null
+        }
         activeSection = section
         if (!::contentBox.isInitialized || fullScreenMode) return
         contentBox.removeAllViews()
@@ -1910,6 +1931,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && fullScreenMode &&
+            event.keyCode in setOf(android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            if (playbackControlsVisible) {
+                playbackControlsVisible = false
+                playbackOverlay?.visibility = View.GONE
+                return true
+            }
+        }
         if (event.action == android.view.KeyEvent.ACTION_DOWN && fullScreenMode && currentPlaying?.section == "Canais ao vivo") {
             when (event.keyCode) {
                 android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { playPrevious(); return true }
@@ -2012,7 +2041,14 @@ class MainActivity : AppCompatActivity() {
         else -> error.message?.take(220) ?: "Não foi possível carregar o conteúdo."
     }
 
-    private fun stopPlayback() { player?.stop() }
+    private fun stopPlayback() {
+        currentPlaying?.let { item -> player?.let { savePlaybackProgress(item, it.currentPosition, it.duration) } }
+        playbackHandler.removeCallbacks(playbackTicker)
+        player?.playWhenReady = false
+        player?.stop()
+        player?.clearMediaItems()
+        playerViewSafeDetach()
+    }
 
     private fun brandHeader() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -2047,24 +2083,7 @@ class MainActivity : AppCompatActivity() {
     private fun fieldParams() = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) }
 
     /** Cor de navegação: muda por seção e também por pasta/subpasta aberta. */
-    private fun navigationAccent(): Int {
-        val sectionColor = when (activeSection) {
-            "Canais ao vivo" -> Color.rgb(0, 220, 150)       // verde
-            "Filmes" -> Color.rgb(255, 166, 45)              // laranja
-            "Séries", "Episódios" -> Color.rgb(190, 105, 255) // roxo
-            else -> Color.rgb(45, 165, 255)                  // azul da inicial/configurações
-        }
-        val folder = selectedFolder
-        if (folder.isNullOrBlank() || folder == RECENT_FOLDER) return sectionColor
-        // Cada pasta mantém uma cor consistente enquanto o usuário navega nela.
-        val palette = intArrayOf(
-            Color.rgb(255, 82, 120), Color.rgb(255, 196, 61),
-            Color.rgb(65, 220, 190), Color.rgb(110, 145, 255),
-            Color.rgb(220, 105, 255), Color.rgb(255, 125, 55),
-            Color.rgb(110, 220, 95), Color.rgb(65, 200, 255)
-        )
-        return palette[(folder.lowercase().hashCode() and Int.MAX_VALUE) % palette.size]
-    }
+    private fun navigationAccent(): Int = Color.rgb(35, 155, 255)
 
     /** Realça o foco do controle remoto com a cor da seção/pasta atual. */
     private fun applyTvFocus(view: View) {
